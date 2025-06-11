@@ -1,0 +1,6 @@
+instance,selected_orders,total_units,visited_aisles,ratio,all_items_covered
+instance_0003.txt,2,171,4,0.00,False
+instance_0004.txt,9,59,17,0.00,False
+instance_0011.txt,336,1250,374,0.00,False
+instance_0012.txt,23,242,1,0.00,False
+instance_0020.txt,1,5,5,1.00,True
