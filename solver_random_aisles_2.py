@@ -139,7 +139,7 @@ def heuristic_warm_start(orders, aisles, l_bound, r_bound, verbose=False):
 
     return estimated_ratio, selected_orders, selected_aisles
 
-def solve_dinkelbach_with_max_lambda(orders, selected_aisles, l_bound, r_bound, selected_aisle_indices, k, initial_max_lambda, verbose=False):
+def solve_dinkelbach_with_max_lambda(orders, selected_aisles, l_bound, r_bound, selected_aisle_indices, k, initial_max_lambda, warm_start_solution=None, verbose=False):
     """
     Resuelve usando Dinkelbach con el enfoque de max_lambda inicial dado.
     """
@@ -168,10 +168,11 @@ def solve_dinkelbach_with_max_lambda(orders, selected_aisles, l_bound, r_bound, 
         mdl = Model(name=f'dinkelbach_iter_{iteration}')
 
         # Configuración de multithreading y rendimiento de CPLEX
-        mdl.context.cplex_parameters.threads = 12  # Número de threads
+        mdl.context.cplex_parameters.threads = 16  # Número de threads
         mdl.context.cplex_parameters.mip.display = 0  # Silenciar CPLEX
-        mdl.context.cplex_parameters.mip.tolerances.mipgap = 0.01  # Gap de tolerancia 1%
+        mdl.context.cplex_parameters.mip.tolerances.mipgap = 0.03  # Gap de tolerancia 1%
         
+        # print("Threads usados:", mdl.context.cplex_parameters.threads)  # Comentado para evitar spam
         # Parámetros adicionales de rendimiento (solo los válidos)
         try:
             mdl.context.cplex_parameters.parallel = 1  # Modo paralelo determinístico
@@ -183,6 +184,26 @@ def solve_dinkelbach_with_max_lambda(orders, selected_aisles, l_bound, r_bound, 
         # Variables de decisión
         x_vars = mdl.binary_var_list(n, name='x')
         y_vars = mdl.binary_var_list(num_aisles_to_use, name='y')  # Solo para pasillos seleccionados
+        
+        # APLICAR WARM START SI SE PROPORCIONA
+        if warm_start_solution is not None:
+            x_warm, y_warm = warm_start_solution
+            if verbose:
+                print(f" [WARM START]", end="")
+            
+            # Setear valores iniciales para variables x
+            for i in range(n):
+                if i < len(x_warm):
+                    x_vars[i].start = x_warm[i]
+                else:
+                    x_vars[i].start = 0
+            
+            # Setear valores iniciales para variables y (solo para pasillos seleccionados)
+            for j, aisle_idx in enumerate(selected_aisle_indices):
+                if aisle_idx < len(y_warm):
+                    y_vars[j].start = y_warm[aisle_idx]
+                else:
+                    y_vars[j].start = 0
         
         # Expresiones para objetivo
         total_quantity_expr = mdl.sum(orders[i]['total_quantity'] * x_vars[i] for i in range(n))
@@ -286,10 +307,10 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
     base_aisles = set()
     
     # Configuración
-    aisles_per_iteration = 50  # Número de pasillos nuevos a agregar en cada iteración
-    initial_aisles = 30       # Número inicial de pasillos para la primera iteración
-    max_base_aisles = 101     # Máximo número de pasillos en el conjunto base
-    time_limit_seconds = time_limit_minutes * 60
+    aisles_per_iteration = 80  # Número de pasillos nuevos a agregar en cada iteración
+    initial_aisles = 70       # Número inicial de pasillos para la primera iteración
+    max_base_aisles = 141     # Máximo número de pasillos en el conjunto base
+    time_limit_seconds = time_limit_minutes * 60 + 300
     start_time = time.time()
     
     # Función para calcular capacidad máxima posible
@@ -324,6 +345,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
     
     # SIN WARM START: Empezar con conjunto base vacío
     base_aisles = set()
+    warm_start_solution = None  # Solución para warm start después de compactación
     if verbose:
         print(f"\nEMPEZANDO SIN WARM START - conjunto base vacío")
         print("-" * 70)
@@ -347,6 +369,8 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
         
         # Determinar pasillos disponibles para selección aleatoria
         available_aisles = set(range(k)) - base_aisles
+        
+
         
         # Determinar cuántos pasillos nuevos agregar
         if iteration == 1:
@@ -400,12 +424,18 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
         # Resolver con Dinkelbach
         x_sol, y_sol, ratio = solve_dinkelbach_with_max_lambda(
             orders, current_aisles_data, l_bound, r_bound, 
-            current_aisle_indices, k, max_lambda, verbose=True
+            current_aisle_indices, k, max_lambda, warm_start_solution, verbose=True
         )
         
         if x_sol is not None:
             if verbose:
                 print(f"  Ratio obtenido: {ratio:.6f}")
+            
+            # Limpiar warm start después de usarlo (solo se usa una vez)
+            if warm_start_solution is not None:
+                warm_start_solution = None
+                if verbose:
+                    print(f"    Warm start aplicado y limpiado")
             
             # Actualizar mejor solución global
             if ratio > best_ratio:
@@ -443,7 +473,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
                 print(f"  No factible - manteniendo conjunto base actual")
         
         # NUEVA LÓGICA: Al llegar a max_base_aisles, resetear al conjunto de la mejor solución
-        if len(base_aisles) > max_base_aisles:
+        if len(base_aisles) + aisles_per_iteration > max_base_aisles:
             if best_x is not None and best_y is not None:
                 # Identificar pasillos usados en la mejor solución actual
                 solution_aisles = set()
@@ -454,9 +484,12 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
                 if solution_aisles:
                     old_base_size = len(base_aisles)
                     base_aisles = solution_aisles.copy()
+                    # GUARDAR SOLUCIÓN ACTUAL COMO WARM START PARA PRÓXIMA ITERACIÓN
+                    warm_start_solution = (best_x.copy(), best_y.copy())
                     if verbose:
                         print(f"    *** COMPACTACIÓN: Resetear conjunto base de {old_base_size} → {len(base_aisles)} pasillos (mejor solución) ***")
                         print(f"    Pasillos en la mejor solución: {sorted(list(solution_aisles))}")
+                        print(f"    *** GUARDANDO SOLUCIÓN COMO WARM START PARA PRÓXIMA ITERACIÓN ***")
                 else:
                     # Fallback: mantener los pasillos más recientes
                     base_aisles = set(list(base_aisles)[-max_base_aisles:])
