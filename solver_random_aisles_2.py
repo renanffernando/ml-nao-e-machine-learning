@@ -307,9 +307,9 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
     base_aisles = set()
     
     # Configuración
-    aisles_per_iteration = 80  # Número de pasillos nuevos a agregar en cada iteración
-    initial_aisles = 70       # Número inicial de pasillos para la primera iteración
-    max_base_aisles = 141     # Máximo número de pasillos en el conjunto base
+    aisles_per_iteration = 140  # Número de pasillos nuevos a agregar en cada iteración
+    initial_aisles = 70         # Número inicial de pasillos para la primera iteración
+    max_base_aisles = 140       # Máximo número de pasillos en el conjunto base
     time_limit_seconds = time_limit_minutes * 60 + 300
     start_time = time.time()
     
@@ -370,15 +370,17 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
         # Determinar pasillos disponibles para selección aleatoria
         available_aisles = set(range(k)) - base_aisles
         
-
-        
         # Determinar cuántos pasillos nuevos agregar
         if iteration == 1:
             # Primera iteración: usar número inicial de pasillos
-            new_aisles_count = min(initial_aisles, len(available_aisles))
+            start_aisles_count = min(initial_aisles, len(available_aisles))
+            new_aisles_count = start_aisles_count
         else:
             # Iteraciones siguientes: agregar pasillos incrementales
             new_aisles_count = min(aisles_per_iteration, len(available_aisles))
+
+            # Enforce the max number of aisles threshold:
+            new_aisles_count = min(max_base_aisles - len(base_aisles), new_aisles_count)
         
         # Si no hay pasillos disponibles para agregar, terminar
         if new_aisles_count == 0:
@@ -412,7 +414,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
             # Limitar el tamaño del conjunto base
             if len(base_aisles) > max_base_aisles:
                 # Mantener solo los pasillos más recientes
-                base_aisles = set(list(base_aisles)[-max_base_aisles:])
+                base_aisles = set(random.sample(list(base_aisles), len(max_base_aisles)))
             
             iteration += 1
             continue
@@ -492,12 +494,12 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
                         print(f"    *** GUARDANDO SOLUCIÓN COMO WARM START PARA PRÓXIMA ITERACIÓN ***")
                 else:
                     # Fallback: mantener los pasillos más recientes
-                    base_aisles = set(list(base_aisles)[-max_base_aisles:])
+                    base_aisles = set(random.sample(list(base_aisles), len(max_base_aisles)))
                     if verbose:
                         print(f"    Limitando conjunto base a {max_base_aisles} pasillos (fallback)")
             else:
                 # Fallback: mantener los pasillos más recientes
-                base_aisles = set(list(base_aisles)[-max_base_aisles:])
+                base_aisles = set(random.sample(list(base_aisles), len(max_base_aisles)))
                 if verbose:
                     print(f"    Limitando conjunto base a {max_base_aisles} pasillos (no hay solución)")
         
