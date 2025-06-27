@@ -286,7 +286,7 @@ def solve_dinkelbach_with_max_lambda(orders, selected_aisles, l_bound, r_bound, 
         print(f"    *** NO CONVERGIÓ después de {max_iter} iteraciones ***")
     return x_sol, y_sol, lambda_val if 'lambda_val' in locals() else 0.0
 
-def verbose_print(msg, aisles, cutoff=5):
+def verbose_print(msg, aisles, cutoff=25):
     print(f"    {msg} {len(aisles)} ({sorted(list(aisles))[:cutoff]}{'...' if len(aisles) > cutoff else ''})")
 
 def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True):
@@ -313,7 +313,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
     aisles_per_iteration = 140  # Número de pasillos nuevos a agregar en cada iteración
     initial_aisles = 70         # Número inicial de pasillos para la primera iteración
     max_base_aisles = 140       # Máximo número de pasillos en el conjunto base
-    time_limit_seconds = time_limit_minutes * 60 + 300
+    time_limit_seconds = time_limit_minutes * 60
     start_time = time.time()
     
     # Función para calcular capacidad máxima posible
@@ -354,7 +354,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
         print("-" * 70)
     
     iteration = 1
-    
+    fail_count = 0
     while True:
         iteration_start_time = time.time()
         
@@ -366,9 +366,9 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
             break
         
         if verbose:
+            print(f"  Tiempo transcurrido: {elapsed_time:.1f}s / {time_limit_seconds}s")
             print(f"\nITERACIÓN {iteration}:")
             verbose_print("Pasillos base actuales:", base_aisles)
-            print(f"  Tiempo transcurrido: {elapsed_time:.1f}s / {time_limit_seconds}s")
         
         # Determinar pasillos disponibles para selección aleatoria
         available_aisles = set(range(k)) - base_aisles
@@ -418,7 +418,8 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
             # Limitar el tamaño del conjunto base
             if len(base_aisles) > max_base_aisles:
                 # Mantener solo los pasillos más recientes
-                base_aisles = start_aisles
+                poll_aisles = set(random.sample(list(new_aisles), 0.1 * new_aisles_count))
+                base_aisles = start_aisles.union(poll_aisles)
             
             iteration += 1
             continue
@@ -432,7 +433,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
             orders, current_aisles_data, l_bound, r_bound, 
             current_aisle_indices, k, max_lambda, warm_start_solution, verbose=True
         )
-        
+
         if x_sol is not None:
             if verbose:
                 print(f"  Ratio obtenido: {ratio:.6f}")
@@ -445,6 +446,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
             
             # Actualizar mejor solución global
             if ratio > best_ratio:
+                fail_count -= 1  # success
                 best_ratio = ratio
                 best_x = x_sol
                 best_y = y_sol
@@ -478,6 +480,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
             if verbose:
                 print(f"  No factible - manteniendo conjunto base actual")
         
+        fail_count += 1
         # NUEVA LÓGICA: Al llegar a max_base_aisles, resetear al conjunto de la mejor solución
         if len(base_aisles) + aisles_per_iteration > max_base_aisles:
             if best_x is not None and best_y is not None:
@@ -490,6 +493,9 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
                 if solution_aisles:
                     old_base_size = len(base_aisles)
                     base_aisles = solution_aisles.copy()
+                    if fail_count >= 3:
+                        base_aisles = set()
+                        fail_count = 0
                     # GUARDAR SOLUCIÓN ACTUAL COMO WARM START PARA PRÓXIMA ITERACIÓN
                     warm_start_solution = (best_x.copy(), best_y.copy())
                     if verbose:
@@ -498,14 +504,22 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
                         print(f"    *** GUARDANDO SOLUCIÓN COMO WARM START PARA PRÓXIMA ITERACIÓN ***")
                 else:
                     # Fallback: mantener los pasillos más recientes
-                    base_aisles = start_aisles
+                    poll_aisles = set(random.sample(list(new_aisles), 0.1 * new_aisles_count))
+                    base_aisles = start_aisles.union(poll_aisles)
+                    if fail_count >= 5:
+                        base_aisles = set()
+                        fail_count = 0
                     if verbose:
-                        print(f"    Limitando conjunto base a {max_base_aisles} pasillos (fallback)")
+                        print(f"    Limitando conjunto base a {len(base_aisles)} pasillos (fallback)")
             else:
                 # Fallback: mantener los pasillos más recientes
-                base_aisles = start_aisles
+                poll_aisles = set(random.sample(list(new_aisles), 0.1 * new_aisles_count))
+                base_aisles = start_aisles.union(poll_aisles)
+                if fail_count >= 5:
+                    base_aisles = set()
+                    fail_count = 0
                 if verbose:
-                    print(f"    Limitando conjunto base a {max_base_aisles} pasillos (no hay solución)")
+                    print(f"    Limitando conjunto base a {len(base_aisles)} pasillos (no hay solución)")
         
         iteration_time = time.time() - iteration_start_time
         if verbose:
