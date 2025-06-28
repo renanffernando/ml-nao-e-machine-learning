@@ -14,7 +14,7 @@ import output as output_module
 import local_search
 import checker
 
-def solve(n, m, k, orders, aisles, l, r, time_limit_minutes=1):
+def solve(n, m, k, orders, aisles, l, r, time_limit_minutes=15):
     return local_search.solve_with_incremental_aisles(orders, aisles, l, r, time_limit_minutes)
 
 if __name__ == "__main__":
