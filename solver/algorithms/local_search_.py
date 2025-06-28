@@ -1,26 +1,11 @@
 import random
 import time
-from algorithms.dinkelbach import solve_dinkelbach_2
-import math
+from algorithms.dinkelbach import solve_dinkelbach
 
 def verbose_print(msg, aisles, cutoff=25):
     print(f"    {msg} {len(aisles)} ({sorted(list(aisles))[:cutoff]}{'...' if len(aisles) > cutoff else ''})")
 
-def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True):
-    """
-    Versión optimizada de búsqueda local que reutiliza un modelo FIJO de Dinkelbach.
-    
-    FILOSOFÍA MODELO FIJO:
-    - Crea el modelo CPLEX una vez con todas las variables y restricciones
-    - Solo cambia bounds de variables (fijar/liberar) entre iteraciones  
-    - Usa warm start con la solución anterior
-    - NO recrea restricciones → MUCHO más rápido
-    
-    Mejoras vs versión original:
-    - ~3-5x más rápido por reutilización de modelo
-    - Convergencia más rápida por warm start
-    - Menor uso de memoria
-    """
+def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True):
     n = len(orders)
     k = len(aisles)
     
@@ -28,18 +13,11 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
     best_x = None
     best_y = None
     
-    # Solución anterior para warm start
-    previous_x = None
-    previous_y = None
-    
-    # Modelo reutilizable
-    reusable_model = None
-    
     # MAX_LAMBDA GLOBAL QUE PERSISTE ENTRE ITERACIONES
     max_lambda = 0.0
     
     # Configuración
-    aisles_per_iteration = min(len(aisles), 120)  # Numero de pasillos a evaluar
+    aisles_per_iteration = 140 #Numero de pasillos a evaluar
     time_limit_seconds = time_limit_minutes * 60
     start_time = time.time()
     
@@ -64,24 +42,20 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
         return max_possible_quantity
     
     if verbose:
-        print(f"INICIANDO BÚSQUEDA LOCAL")
+        print(f"INICIANDO BÚSQUEDA CON PASILLOS INCREMENTALES")
         print(f"Pasillos disponibles: {k}")
         print(f"Límite de tiempo: {time_limit_minutes} minutos")
-        print(f"Estrategia optimizada:")
+        print(f"Estrategia:")
         print(f"  - Pasillos por iteración: {aisles_per_iteration}")
-        print(f"  - Modelo FIJO reutilizable: SÍ")
-        print(f"  - Warm start automático: SÍ") 
-        print(f"  - Solo cambiar bounds + objetivo")
         print("-" * 70)
     
     base_aisles = set()
     if verbose:
-        print(f"\nEMPEZANDO - conjunto base vacío")
+        print(f"\nEMPEZANDO SIN WARM START - conjunto base vacío")
         print("-" * 70)
     
     iteration = 1
     fail_count = 0
-    
     while True:
         iteration_start_time = time.time()
         
@@ -96,11 +70,7 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
             print(f"  Tiempo transcurrido: {elapsed_time:.1f}s / {time_limit_seconds}s")
             print(f"\nITERACIÓN {iteration}:")
             verbose_print("Pasillos base actuales:", base_aisles)
-
-        # En caso de que no haya más elementos o muchos fallos
-        if aisles_per_iteration == len(base_aisles) or fail_count > 10:
-            base_aisles = set(random.sample(list(base_aisles), (int)(0.92 * len(base_aisles) + 0.5)))
-
+            
         # Determinar pasillos disponibles para selección aleatoria
         available_aisles = set(range(k)) - base_aisles
         
@@ -110,6 +80,9 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
                 print(f"  No hay más pasillos disponibles para agregar. Terminando.")
             break
         
+        #en caso de que no haya mas elementos
+        if aisles_per_iteration == len(base_aisles) or fail_count > 3:
+            base_aisles = set(random.sample(list(base_aisles), (int)(0.8 * len(base_aisles))))
 
         # Seleccionar pasillos nuevos aleatoriamente
         new_aisles = set(random.sample(list(available_aisles), aisles_per_iteration - len(base_aisles)))
@@ -136,34 +109,15 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
         
         if verbose:
             print(f"  Capacidad suficiente (max={max_possible_quantity} >= L={l_bound})")
-            status = "CREANDO" if reusable_model is None else "REUTILIZANDO"
-            print(f"  Resolviendo con Dinkelbach v2 ({status} modelo fijo)...")
+            print(f"  Resolviendo con Dinkelbach...")
         
-        # Crear mapeo de índices locales para los pasillos seleccionados
-        selected_aisle_indices = current_aisle_indices
-        subset_aisles = list(range(len(current_aisle_indices)))  # Todos los pasillos en el subset están activos
-        subset_orders = None  # Todos los pedidos activos
-        
-        # Resolver con Dinkelbach v2 (optimizado)
-        x_sol, y_sol, ratio, reusable_model = solve_dinkelbach_2(
-            orders=orders,
-            selected_aisles=current_aisles_data,
-            selected_aisle_indices=current_aisle_indices,  
-            l_bound=l_bound,
-            r_bound=r_bound,
-            k=k,
-            initial_lambda=max_lambda,
-            subset_orders=None,
-            subset_aisles=None,
-            warm_start_x=previous_x,
-            warm_start_y=previous_y,
-            model=reusable_model,
-            all_aisles=aisles
-        )
+        # Resolver con Dinkelbach
+        x_sol, y_sol, ratio = solve_dinkelbach(orders, current_aisles_data, current_aisle_indices, l_bound, r_bound, k, max_lambda)
         
         if x_sol is not None:
             if verbose:
                 print(f"  Ratio obtenido: {ratio:.6f}")
+            
             
             # Actualizar mejor solución global
             if ratio > best_ratio:
@@ -171,15 +125,10 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
                 best_ratio = ratio
                 best_x = x_sol
                 best_y = y_sol
-                
-                # Guardar para warm start en próxima iteración
-                previous_x = x_sol.copy()
-                previous_y = y_sol.copy()
-                
                 if verbose:
                     print(f"    *** NUEVA MEJOR SOLUCIÓN GLOBAL: {ratio:.6f} ***")
                 
-                # Identificar pasillos usados en la mejor solución  
+                # Identificar pasillos usados en la mejor solución
                 used_aisles = set()
                 for i, aisle_idx in enumerate(current_aisle_indices):
                     if y_sol[aisle_idx] > 0.5:
@@ -192,7 +141,6 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
                     verbose_print("Pasillos usados en mejor solución:", used_aisles)
                     print(f"    Agregando {len(used_aisles)} pasillos exitosos al conjunto base")
                     print(f"    Nuevo conjunto base: {len(base_aisles)} pasillos")
-                    print(f"    Warm start guardado para próxima iteración")
             else:
                 fail_count += 1
                 # Si no mejoró, NO agregar pasillos al conjunto base
@@ -208,36 +156,22 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
             if verbose:
                 print(f"  No factible - manteniendo conjunto base actual")
 
+
         iteration_time = time.time() - iteration_start_time
         if verbose:
             print(f"  Tiempo de iteración: {iteration_time:.2f}s")
             print(f"  Mejor ratio global: {best_ratio:.6f}")
             print(f"  λ_global actual: {max_lambda:.6f}")
-            print(f"  Modelo fijo: {'REUTILIZADO' if reusable_model is not None else 'NO CREADO'}")
         
         iteration += 1
-    
-    # Limpiar el modelo al final
-    if reusable_model is not None:
-        try:
-            reusable_model.end()
-            if verbose:
-                print(f"  Modelo fijo limpiado correctamente")
-        except:
-            pass
     
     total_time = time.time() - start_time
     if verbose:
         print(f"\n" + "="*70)
-        print(f"BÚSQUEDA LOCAL CON MODELO FIJO COMPLETADA")
+        print(f"BÚSQUEDA INCREMENTAL COMPLETADA")
         print(f"Iteraciones realizadas: {iteration - 1}")
         print(f"Tiempo total: {total_time:.2f}s ({total_time/60:.1f} minutos)")
         print(f"Pasillos en conjunto base final: {len(base_aisles)}")
         print(f"Mejor λ encontrado: {max_lambda:.6f}")
-        print(f"Optimizaciones aplicadas:")
-        print(f"  ✓ Modelo FIJO reutilizado entre iteraciones")
-        print(f"  ✓ Warm start con solución anterior")
-        print(f"  ✓ Solo cambio de bounds + objetivo (no restricciones)")
-        print(f"  ✓ Pedidos inválidos fijados a 0 (no eliminados)")
     
-    return best_x, best_y, best_ratio 
+    return best_x, best_y, best_ratio
