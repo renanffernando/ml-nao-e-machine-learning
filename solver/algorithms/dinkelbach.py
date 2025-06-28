@@ -106,7 +106,7 @@ def solve_dinkelbach(orders, selected_aisles, selected_aisle_indices, l_bound, r
         numerator = sum(valid_orders[i]['total_quantity'] * x_sol_valid[i] for i in range(n_valid))
         denominator = sum(y_sol_subset[j] for j in range(m))
         
-        if numerator < l_bound or numerator < r_bound:
+        if numerator < l_bound or numerator > r_bound:
             print("ERROR: invalid solution")
 
         if denominator > 0:
