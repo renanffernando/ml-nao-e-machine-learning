@@ -4,9 +4,9 @@ import time
 
 # Agregar el directorio actual al path de Python
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test'))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parser'))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'algorithms'))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test'))
 
 # Importar directamente los archivos
 import checker
@@ -15,17 +15,12 @@ import input as input_module
 import output as output_module
 
 
-def solve(n, m, k, orders, aisles, l, r, time_limit_minutes=10):
+def solve(orders, aisles, l, r, time_limit_minutes=10):
     return local_search.solve_with_incremental_aisles_2(orders, aisles, l, r, time_limit_minutes)
 
 
 if __name__ == "__main__":
-    # Inicializar filename con un valor por defecto
-    filename = "input.txt"
-
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]
-
+    filename = "input.txt" if len(sys.argv) == 1 else sys.argv[1]
     result = input_module.read(filename)
     if result is None:
         print("Error: No se pudieron leer los datos del archivo")
@@ -34,7 +29,7 @@ if __name__ == "__main__":
     n, m, k, orders, aisles, l_bound, r_bound = result
 
     start_time = time.time()
-    best_x_sol, best_y_sol, best_ratio = solve(n, m, k, orders, aisles, l_bound, r_bound)
+    best_x_sol, best_y_sol, best_ratio = solve(orders, aisles, l_bound, r_bound)
     end_time = time.time()
 
     # Mostrar información de la solución

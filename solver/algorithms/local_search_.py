@@ -17,7 +17,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
 
     # MAX_LAMBDA GLOBAL QUE PERSISTE ENTRE ITERACIONES
     max_lambda = 0.0
-    
+
     # Configuración
     aisles_per_iteration = 140  # Numero de pasillos a evaluar
     time_limit_seconds = time_limit_minutes * 60
