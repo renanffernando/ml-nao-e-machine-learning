@@ -1,6 +1,6 @@
 import time
-from math import ceil
 from random import sample
+from math import ceil,log2,floor
 from algorithms.dinkelbach import solve_dinkelbach_2
 
 
@@ -63,13 +63,15 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
 
     # Configuración
     aisles_per_iteration = 1  # Número inicial de pasillos a considerar en cada iteración
-    max_base_aisles = 100  # Máximo número de pasillos en el conjunto base
-    max_fail = 2 ** 9  # Number of trials before soft reset
+    if k <= 150: aisles_per_iteration = k
+    max_base_aisles = 60  # Máximo número de pasillos en el conjunto base
+    max_fail = ceil(1.5 ** log2(n))  # Number of trials before soft reset
     time_limit_seconds = time_limit_minutes * 60
     start_time = time.time()
 
     if verbose:
         print(f"INICIANDO BÚSQUEDA LOCAL")
+        print(f"Pedidos disponibles: {n}")
         print(f"Pasillos disponibles: {k}")
         print(f"Límite de tiempo: {time_limit_minutes} minutos")
         print(f"Estrategia optimizada:")
@@ -102,15 +104,15 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
 
         if verbose:
             print(f"  Tiempo transcurrido: {elapsed_time:.1f}s / {time_limit_seconds}s")
-            print(f"\nITERACIÓN {iteration}:")
+            print(f"\nITERACIÓN {iteration} with {fail_count}/{max_fail} fails in a row:")
             verbose_print("Pasillos base actuales:", base_aisles)
 
         # En caso de muchos fallos escolié um subconjunto
         if fail_count >= max_fail:
-            new_base_aisles_size = ceil(0.92 * len(base_aisles))
+            new_base_aisles_size = ceil(0.9 * len(base_aisles))
             base_aisles = set(sample(list(base_aisles), new_base_aisles_size))
             aisles_per_iteration = min(k, ceil(1.5 * aisles_per_iteration))
-            max_fail = max(max_fail // 2, 1)
+            max_fail = max(ceil(0.7 * max_fail), 1)
             fail_count = 0
 
         # Determinar pasillos disponibles para selección aleatoria
@@ -198,7 +200,8 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
 
                 # SOLO agregar pasillos exitosos al conjunto base
                 poll_aisles = current_aisles_set - used_aisles
-                keep_aisles_num = ceil(0.3 * len(poll_aisles))
+                keep_aisles_num = floor(0.9 * min(max_base_aisles - len(used_aisles), len(poll_aisles)))
+                keep_aisles_num = max(keep_aisles_num, 0)
                 keep_aisles = set(sample(list(poll_aisles), keep_aisles_num))
                 base_aisles = used_aisles.union(keep_aisles)
 
@@ -243,11 +246,11 @@ def solve_with_incremental_aisles_2(orders, aisles, l_bound, r_bound, time_limit
         print(f"Tiempo total: {total_time:.2f}s ({total_time / 60:.1f} minutos)")
         print(f"Pasillos en conjunto base final: {len(base_aisles)}")
         print(f"Mejor λ encontrado: {max_lambda:.6f}")
-        print(f"Solved to optimality: {str(len(current_aisles_set) == k)}")
         print(f"Optimizaciones aplicadas:")
         print(f"  ✓ Modelo FIJO reutilizado entre iteraciones")
         print(f"  ✓ Warm start con solución anterior")
         print(f"  ✓ Solo cambio de bounds + objetivo (no restricciones)")
         print(f"  ✓ Pedidos inválidos fijados a 0 (no eliminados)")
+        print(f"\n*** Solved to optimality: {str(len(current_aisles_set) == k)} ***")
 
     return best_x, best_y, best_ratio
