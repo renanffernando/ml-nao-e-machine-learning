@@ -20,7 +20,7 @@ def search(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True
     neighborhood_size = 10
     neighborhood_width = 1
     initial_k = min(k, 10)
-    max_fail = ceil(1.2 ** log2(n))  # Number of trials before soft reset
+    max_fail = ceil(1.3 ** log2(n))  # Number of trials before soft reset
 
     all_aisle_indices = set(range(k))
     current_aisle_indices = set(sample(list(all_aisle_indices), initial_k))
@@ -79,7 +79,8 @@ def search(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True
 
     optimality = False
     fail_count = 0
-    while elapsed_time := time.time() - start_time < time_limit:
+    best_neighbor = None
+    while (elapsed_time := time.time() - start_time) < time_limit:
         iteration += 1
         if verbose:
             print(f'\nStarting iteration {iteration} with {len(current_aisle_indices)} aisles:')
@@ -88,10 +89,10 @@ def search(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True
         neighborhood = set()
         for _ in range(neighborhood_size):
             candidate_indices = set(current_aisle_indices).copy()
-            move_type = choice(['add', 'remove'])
+            move_type = choice(['add', 'remove', 'swap'])
+            remaining = all_aisle_indices - candidate_indices
 
-            if move_type == 'add':
-                remaining = all_aisle_indices - candidate_indices
+            if move_type != 'remove':
                 if remaining:
                     move_size = min(neighborhood_width, len(remaining))
                     new_aisles = set(sample(list(remaining), move_size))
@@ -99,14 +100,13 @@ def search(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True
                 else:
                     continue
 
-            elif move_type == 'remove':
-                if len(candidate_indices) > 1:
-                    move_size = min(neighborhood_width, len(candidate_indices))
-                    candidate_indices -= set(sample(list(candidate_indices), move_size))
-                    if len(candidate_indices) == 0: continue
-
-            else:
-                continue
+            if move_type != 'add':
+                if best_neighbor is not None:
+                    used_aisles = set(best_neighbor['aisles']).copy()
+                    if len(used_aisles) > 1:
+                        move_size = min(neighborhood_width, len(used_aisles))
+                        candidate_indices -= set(sample(list(used_aisles), move_size))
+                        if len(candidate_indices) == 0: continue
 
             candidate_list = tuple(candidate_indices)
             if candidate_list not in neighborhood:
@@ -134,7 +134,7 @@ def search(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True
                 l_bound=l_bound,
                 r_bound=r_bound,
                 k=k,
-                initial_lambda=best_solution['ratio'],
+                initial_lambda=0,
                 warm_start_x=best_solution['x_sol'],
                 warm_start_y=best_solution['y_sol'],
                 model=reusable_model,
@@ -142,13 +142,16 @@ def search(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True
             )
             if ratio is None: continue
             if ratio > best_neighbor_obj:
-                best_neighbor_obj = ratio
                 used_aisles = set(i for i in current_aisles if y_sol[i] > 0.5)
+                if best_neighbor is not None and used_aisles.issubset(best_solution['aisles_poll']):
+                    continue  # avoid loops
+
+                best_neighbor_obj = ratio
                 best_neighbor = {
-                    'aisles': used_aisles,
-                    'aisles_poll': current_aisles,
-                    'x_sol': x_sol,
-                    'y_sol': y_sol,
+                    'aisles': tuple(used_aisles),
+                    'aisles_poll': tuple(current_aisles),
+                    'x_sol': tuple(x_sol),
+                    'y_sol': tuple(y_sol),
                     'ratio': ratio
                 }
         progress_bar('\nFinished evaluating neighborhood', 1, 1)
@@ -167,24 +170,26 @@ def search(orders, aisles, l_bound, r_bound, time_limit_minutes=10, verbose=True
 
             current_aisle_indices = best_neighbor['aisles_poll']
             tabu_list.append(tuple(current_aisle_indices))
-        elif verbose:
-            print(
-                f'Finished with no valid solution in the neighbourhood.')
 
         if fail_count >= max_fail:
             neighborhood_width = min(ceil(2 * neighborhood_width), k)
-            max_fail = max(ceil(0.7 * max_fail), 1)
+            max_fail = max(ceil(0.5 * max_fail), 1)
             fail_count = 0
 
         if verbose:
-            ratio = best_solution['ratio']
             count = len(best_solution['aisles'])
             poll_count = len(best_solution['aisles_poll'])
             print(
                 f'Finished iteration {iteration} with {count}/{poll_count} aisles and {fail_count}/{max_fail} fails in a row.')
-            print(f'    Best obj={ratio:.4f}')
-            print(f'    Best neighbor obj={best_neighbor_obj:.4f}')
-            print(f'    Neighbors size={len(best_neighbor["aisles_poll"])} ± {neighborhood_width}')
+            print(f'    Best obj={best_solution["ratio"]:.4f}')
+            if best_neighbor is not None:
+                print(f'    Best neighbor obj={best_neighbor["ratio"]:.4f}')
+                count = len(best_neighbor['aisles'])
+                poll_count = len(best_neighbor['aisles_poll'])
+                print(f'    Best neighbor using {count}/{poll_count} aisles')
+                print(f'    Neighbors size={len(best_neighbor["aisles_poll"])} ± {neighborhood_width}')
+            if best_neighbor is None:
+                print(f'    No valid solution in the neighbourhood.')
 
         if optimality: break  # solved to optimality
 

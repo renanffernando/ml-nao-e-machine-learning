@@ -6,10 +6,9 @@ def verbose_print(msg, aisles, cutoff=25):
 
 
 def progress_bar(msg, progress, total, length=50):
-    percent = int(100 * (progress / float(total)))
     filled = int(length * progress // total)
     bar = '█' * filled + '-' * (length - filled)
-    sys.stdout.write(f'{msg} |{bar}| {percent}%\n')
+    sys.stdout.write(f'{msg} |{bar}| {progress}/{total}\n')
     sys.stdout.flush()
 
 
