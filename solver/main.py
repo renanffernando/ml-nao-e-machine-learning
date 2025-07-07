@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'alg
 
 # Importar directamente los archivos
 import checker
+import tabu_search
 import local_search
 import local_search_big
 import input as input_module
@@ -19,7 +20,8 @@ import output as output_module
 def solve(orders, aisles, l, r, time_limit_minutes=10):
     if len(orders) >= 20000:
         return local_search_big.solve_with_incremental_aisles(orders, aisles, l, r, time_limit_minutes)
-    return local_search.solve_with_incremental_aisles_2(orders, aisles, l, r, time_limit_minutes)
+    return tabu_search.search(orders, aisles, l, r, time_limit_minutes)
+    # return local_search.solve_with_incremental_aisles_2(orders, aisles, l, r, time_limit_minutes)
 
 
 if __name__ == "__main__":
