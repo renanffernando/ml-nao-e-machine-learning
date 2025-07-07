@@ -1,6 +1,6 @@
 import random
 import time
-from algorithms.dinkelbach import solve_dinkelbach
+from algorithms.dinkelbach_big import solve_dinkelbach
 
 
 def verbose_print(msg, aisles, cutoff=25):
@@ -19,7 +19,7 @@ def solve_with_incremental_aisles(orders, aisles, l_bound, r_bound, time_limit_m
     max_lambda = 0.0
 
     # Configuración
-    aisles_per_iteration = 140  # Numero de pasillos a evaluar
+    aisles_per_iteration = 50  # Numero de pasillos a evaluar
     time_limit_seconds = time_limit_minutes * 60
     start_time = time.time()
 
