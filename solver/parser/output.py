@@ -8,18 +8,17 @@ def status(x_sol, y_sol, opt_val, start_time, end_time):
     else:
         print("No se encontró ninguna solución factible.")
         return
-    
+
     # Mostrar mejor solución
     print()
     print("=" * 60)
     print("MEJOR SOLUCIÓN ENCONTRADA")
     print("=" * 60)
-    
+
     # Pedidos seleccionados
     selected_orders = [i for i in range(n) if x_sol[i] > 0.5]
     print(f"Pedidos seleccionados ({len(selected_orders)}): {selected_orders}")
-    
+
     # Pasillos seleccionados
     selected_aisles = [i for i in range(k) if y_sol[i] > 0.5]
     print(f"Pasillos seleccionados ({len(selected_aisles)}): {selected_aisles}")
-    
