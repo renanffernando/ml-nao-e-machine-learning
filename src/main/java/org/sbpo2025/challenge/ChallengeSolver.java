@@ -2,17 +2,8 @@ package org.sbpo2025.challenge;
 
 import org.apache.commons.lang3.time.StopWatch;
 
-import java.io.BufferedReader;
-import java.io.EOFException;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -21,401 +12,18 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import ilog.concert.*; // Classes base (restrições, variáveis, expressões)
-import ilog.cplex.*; // O solver CPLEX
+import ilog.concert.*;
+import ilog.cplex.*;
 
 public class ChallengeSolver {
     private final long MAX_RUNTIME = 600000; // milliseconds; 10 minutes
+    Instance inst;
 
-    protected List<Map<Integer, Integer>> orders;
-    protected List<Map<Integer, Integer>> aisles;
-    protected int nItems;
-    protected int waveSizeLB;
-    protected int waveSizeUB;
-
-    public ChallengeSolver(
-            List<Map<Integer, Integer>> orders, List<Map<Integer, Integer>> aisles, int nItems, int waveSizeLB,
-            int waveSizeUB) {
-        this.orders = orders;
-        this.aisles = aisles;
-        this.nItems = nItems;
-        this.waveSizeLB = waveSizeLB;
-        this.waveSizeUB = waveSizeUB;
+    public ChallengeSolver(Instance instance) {
+        this.inst = instance;
     }
 
-    // ------------ Small helper graph (to replace NetworkX) -----------------
-    static class Graph {
-        Map<String, Set<String>> adj = new HashMap<>();
-        Map<String, Integer> nodeWeight = new HashMap<>();
-        int graphWeight = 0; // analogous to g.graph['weight'] in networkx
-
-        void addNode(String n) {
-            adj.putIfAbsent(n, new HashSet<>());
-        }
-
-        void setNodeWeight(String n, int w) {
-            nodeWeight.put(n, w);
-        }
-
-        int getNodeWeight(String n) {
-            return nodeWeight.getOrDefault(n, 0);
-        }
-
-        void addEdge(String u, String v) {
-            addNode(u);
-            addNode(v);
-            adj.get(u).add(v);
-            adj.get(v).add(u);
-        }
-
-        Set<String> nodes() {
-            return adj.keySet();
-        }
-
-        Set<String> neighbors(String n) {
-            return adj.getOrDefault(n, Collections.emptySet());
-        }
-
-        void removeNode(String n) {
-            if (!adj.containsKey(n))
-                return;
-            for (String nb : new ArrayList<>(adj.get(n))) {
-                adj.get(nb).remove(n);
-            }
-            adj.remove(n);
-            nodeWeight.remove(n);
-        }
-
-        Set<String> isolates() {
-            Set<String> res = new HashSet<>();
-            for (var e : adj.entrySet()) {
-                if (e.getValue().isEmpty())
-                    res.add(e.getKey());
-            }
-            return res;
-        }
-
-        Graph subgraph(Set<String> keep) {
-            Graph g = new Graph();
-            for (String n : keep) {
-                if (adj.containsKey(n)) {
-                    g.addNode(n);
-                    if (nodeWeight.containsKey(n))
-                        g.setNodeWeight(n, nodeWeight.get(n));
-                }
-            }
-            for (String u : keep) {
-                for (String v : neighbors(u)) {
-                    if (keep.contains(v))
-                        g.addEdge(u, v);
-                }
-            }
-            g.graphWeight = this.graphWeight;
-            return g;
-        }
-
-        List<Set<String>> connectedComponents() {
-            List<Set<String>> comps = new ArrayList<>();
-            Set<String> vis = new HashSet<>();
-            for (String s : nodes()) {
-                if (vis.contains(s))
-                    continue;
-                Set<String> comp = new HashSet<>();
-                Deque<String> dq = new ArrayDeque<>();
-                dq.add(s);
-                vis.add(s);
-                while (!dq.isEmpty()) {
-                    String u = dq.poll();
-                    comp.add(u);
-                    for (String v : neighbors(u)) {
-                        if (!vis.contains(v)) {
-                            vis.add(v);
-                            dq.add(v);
-                        }
-                    }
-                }
-                comps.add(comp);
-            }
-            return comps;
-        }
-    }
-
-    // --------------------------- Helpers -----------------------------------
-    static String label(String prefix, String key) {
-        return prefix + "[" + key + "]";
-    }
-
-    static String oLabel(int o) {
-        return label("o", Integer.toString(o));
-    }
-
-    static String aLabel(int a) {
-        return label("a", Integer.toString(a));
-    }
-
-    static int labelNumber(String name, int prefixSize) {
-        // name like "o[123]": cut off first 2 chars "o[" and last char "]"
-        return Integer.parseInt(name.substring(prefixSize, name.length() - 1));
-    }
-
-    // --------------------------- Instance ----------------------------------
-    static class Instance {
-        int O, I, A;
-        int[][] u_oi; // O x I
-        int[][] u_ai; // A x I
-
-        List<Set<Integer>> order_items = new ArrayList<>(); // per order: items present
-        List<Set<Integer>> aisle_items = new ArrayList<>(); // per aisle: items present
-
-        List<Set<Integer>> item_orders; // per item: orders containing it
-        List<Set<Integer>> item_aisles; // per item: aisles containing it
-
-        Set<String> invalid_order_nodes = new HashSet<>();
-        Set<String> trivial_nodes = new HashSet<>();
-
-        int LB, UB;
-
-        String input_file;
-        Graph underlying_graph = new Graph();
-
-        Instance(String inputFileOrNull) throws IOException {
-            this.input_file = inputFileOrNull;
-            BufferedReader br;
-            if (inputFileOrNull == null) {
-                br = new BufferedReader(new InputStreamReader(System.in));
-            } else {
-                br = new BufferedReader(new FileReader(inputFileOrNull));
-            }
-
-            // First line: O I A
-            {
-                String[] toks = nextNonEmptyLine(br).trim().split("\\s+");
-                O = Integer.parseInt(toks[0]);
-                I = Integer.parseInt(toks[1]);
-                A = Integer.parseInt(toks[2]);
-            }
-
-            item_orders = new ArrayList<>(I);
-            item_aisles = new ArrayList<>(I);
-            for (int i = 0; i < I; i++) {
-                item_orders.add(new HashSet<>());
-                item_aisles.add(new HashSet<>());
-            }
-
-            // add nodes for bipartite sets
-            for (int o = 0; o < O; o++)
-                underlying_graph.addNode(oLabel(o));
-            for (int a = 0; a < A; a++)
-                underlying_graph.addNode(aLabel(a));
-
-            // Read orders matrix: lines with sparse pairs (index, qty)
-            u_oi = new int[O][I];
-            for (int o = 0; o < O; o++) {
-                String line = nextNonEmptyLine(br);
-                int[] data = parseIntLine(line);
-                // data in pattern: [k, i1, q1, i2, q2, ...] — but Python used data[1::2] as
-                // indices (skip first?)
-                // The original Python expects: count-like? We'll follow Python:
-                // indices = data[1], data[3], ... ; qtys = data[2], data[4], ...
-                // So we start from position 1.
-                int sumQty = 0;
-                Set<Integer> itemsHere = new HashSet<>();
-                for (int p = 1; p + 1 < data.length; p += 2) {
-                    int idx = data[p];
-                    int qty = data[p + 1];
-                    u_oi[o][idx] = qty;
-                    if (qty > 0) {
-                        item_orders.get(idx).add(o);
-                        itemsHere.add(idx);
-                        sumQty += qty;
-                    }
-                }
-                order_items.add(itemsHere);
-                underlying_graph.setNodeWeight(oLabel(o), sumQty);
-            }
-
-            // Read aisles matrix: also sparse pairs
-            u_ai = new int[A][I];
-            for (int a = 0; a < A; a++) {
-                String line = nextNonEmptyLine(br);
-                int[] data = parseIntLine(line);
-                Set<Integer> itemsHere = new HashSet<>();
-                for (int p = 1; p + 1 < data.length; p += 2) {
-                    int idx = data[p];
-                    int qty = data[p + 1];
-                    u_ai[a][idx] = qty;
-                    if (qty > 0) {
-                        item_aisles.get(idx).add(a);
-                        itemsHere.add(idx);
-                    }
-                }
-                aisle_items.add(itemsHere);
-
-                for (int o = 0; o < O; o++) {
-                    // if aisle a shares any item with order o, add edge
-                    if (!Collections.disjoint(aisle_items.get(a), order_items.get(o))) {
-                        underlying_graph.addEdge(oLabel(o), aLabel(a));
-                    }
-                }
-            }
-
-            // Read LB, UB
-            {
-                String[] toks = nextNonEmptyLine(br).trim().split("\\s+");
-                LB = Integer.parseInt(toks[0]);
-                UB = Integer.parseInt(toks[1]);
-            }
-
-            br.close();
-        }
-
-        List<Graph> getComponents() {
-            List<Graph> comps = new ArrayList<>();
-            for (Set<String> compNodes : underlying_graph.connectedComponents()) {
-                comps.add(underlying_graph.subgraph(compNodes));
-            }
-            return comps;
-        }
-
-        void clear_orders(int[] invalidOrders) {
-            for (int o : invalidOrders)
-                invalid_order_nodes.add(oLabel(o));
-            for (String n : invalid_order_nodes)
-                underlying_graph.removeNode(n);
-            trivial_nodes = underlying_graph.isolates();
-            for (String n : trivial_nodes)
-                underlying_graph.removeNode(n);
-            for (int o : invalidOrders)
-                Arrays.fill(u_oi[o], 0);
-        }
-
-        double trivial_ub() {
-            // Sort aisles by "number of items" (sum over items), desc. Compute
-            // min(sum_items, UB)/(num_aisles)
-            List<Integer> numAisleItems = new ArrayList<>();
-            for (int a = 0; a < A; a++) {
-                int tot = 0;
-                for (int i = 0; i < I; i++)
-                    tot += u_ai[a][i];
-                numAisleItems.add(tot);
-            }
-            numAisleItems.sort(Comparator.reverseOrder());
-            double best = 0.0;
-            int sum = 0;
-            for (int k = 0; k < numAisleItems.size(); k++) {
-                sum += numAisleItems.get(k);
-                double curr = Math.min(sum, UB) / (double) (k + 1);
-                if (sum >= LB && curr > best) {
-                    best = curr;
-                    break;
-                }
-            }
-            return best;
-        }
-
-        // ---- Parsing helpers
-        private static String nextNonEmptyLine(BufferedReader br) throws IOException {
-            String line;
-            while ((line = br.readLine()) != null) {
-                if (!line.trim().isEmpty())
-                    return line;
-            }
-            throw new EOFException("Unexpected end of file.");
-        }
-
-        private static int[] parseIntLine(String line) {
-            String[] toks = line.trim().split("\\s+");
-            int[] arr = new int[toks.length];
-            for (int i = 0; i < toks.length; i++)
-                arr[i] = Integer.parseInt(toks[i]);
-            return arr;
-        }
-    }
-
-    // --------------------------- Solution ----------------------------------
-    static class Solution {
-        boolean empty = true;
-
-        Map<String, Integer> variables = new HashMap<>();
-        Set<String> order_nodes = new HashSet<>();
-        List<Integer> orders = new ArrayList<>();
-        Set<String> aisle_nodes = new HashSet<>();
-        List<Integer> aisles = new ArrayList<>();
-
-        int wave_orders = 0;
-        int wave_items = 0;
-        int wave_aisles = 0;
-        double obj = Double.NEGATIVE_INFINITY;
-
-        Graph underlying_graph;
-
-        Solution(Map<String, Integer> vars, int numItems, Graph instanceGraph, boolean empty) {
-            this.empty = empty;
-            if (empty)
-                return;
-            this.variables = vars;
-            this.wave_items = numItems;
-            computeData();
-            this.underlying_graph = instanceGraph.subgraph(union(order_nodes, aisle_nodes));
-            this.underlying_graph.graphWeight = this.wave_items;
-        }
-
-        void computeData() {
-            order_nodes.clear();
-            orders.clear();
-            aisle_nodes.clear();
-            aisles.clear();
-
-            for (var e : variables.entrySet()) {
-                String key = e.getKey();
-                int val = e.getValue();
-                if (val == 0)
-                    continue;
-                char c = key.charAt(0);
-                if (c == 'o') {
-                    order_nodes.add(key);
-                    orders.add(labelNumber(key, 2));
-                } else if (c == 'a') {
-                    aisle_nodes.add(key);
-                    aisles.add(labelNumber(key, 2));
-                }
-            }
-            wave_orders = orders.size();
-            wave_aisles = aisles.size();
-            obj = wave_aisles > 0 ? (wave_items * 1.0 / wave_aisles) : (wave_items);
-        }
-
-        List<Graph> getComponents() {
-            List<Graph> comps = new ArrayList<>();
-            for (Set<String> compNodes : underlying_graph.connectedComponents()) {
-                comps.add(underlying_graph.subgraph(compNodes));
-            }
-            return comps;
-        }
-
-        void restrict_solution(Graph comp) {
-            Set<String> compNodes = comp.nodes();
-            for (String node : new HashSet<>(order_nodes)) {
-                if (!compNodes.contains(node))
-                    variables.put(node, 0);
-            }
-            for (String node : new HashSet<>(aisle_nodes)) {
-                if (!compNodes.contains(node))
-                    variables.put(node, 0);
-            }
-            this.wave_items = comp.graphWeight;
-            computeData();
-            this.underlying_graph = comp;
-        }
-
-        private static Set<String> union(Set<String> a, Set<String> b) {
-            Set<String> r = new HashSet<>(a);
-            r.addAll(b);
-            return r;
-        }
-    }
-
-    static void bestSubSolution(Solution sol, int LB) {
+    static void bestSubSolution(ChallengeSolution sol, int LB) {
         List<Graph> comps = sol.getComponents();
         if (comps.size() <= 1)
             return;
@@ -452,7 +60,7 @@ public class ChallengeSolver {
     }
 
     // -------------------------- CPLEX Solution ------------------------------
-    static class CPLEXSolution extends Solution {
+    static class CPLEXSolution extends ChallengeSolution {
         CPLEXSolution(IloCplex cplex,
                 Map<String, IloNumVar> nameToVar,
                 IloNumExpr waveItemsExpr,
@@ -469,7 +77,6 @@ public class ChallengeSolver {
                 Map<String, IloNumVar> nameToVar)
                 throws IloException {
             Map<String, Integer> vals = new HashMap<>();
-            int cnt = 0;
             for (var e : nameToVar.entrySet()) {
                 double v = cplex.getValue(e.getValue());
                 vals.put(e.getKey(), (int) Math.round(v));
@@ -489,7 +96,7 @@ public class ChallengeSolver {
         // Decision: select aisles
         IloNumVar[] Avars = setModel.boolVarArray(inst.A);
         for (int a = 0; a < inst.A; a++)
-            Avars[a].setName(aLabel(a));
+            Avars[a].setName(Helpers.aLabel(a));
 
         // We'll rebuild constraints per order
         List<IloRange> currentCons = new ArrayList<>();
@@ -532,14 +139,8 @@ public class ChallengeSolver {
         return result;
     }
 
-    // ------------------------------ Main ------------------------------------
-    public static void main(String[] args) {
-        long startTime = System.currentTimeMillis();
-        String instancePath = (args.length >= 1) ? args[0] : null;
-
+    public ChallengeSolution solve(StopWatch stopWatch) {
         try {
-            Instance inst = new Instance(instancePath);
-
             // ---- Preprocess
             int[] minCovers = minOrdersCover(inst);
             // mark invalid orders (min cover == 0)
@@ -550,7 +151,7 @@ public class ChallengeSolver {
             inst.clear_orders(invalid.stream().mapToInt(i -> i).toArray());
 
             System.out.printf("Preprocessing completed after %.2fs%n",
-                    (System.currentTimeMillis() - startTime) / 1000.0);
+                    getCurrentTime(stopWatch) / 1000.0);
 
             // ---- Build Dinkelbach model
             IloCplex cplex = new IloCplex();
@@ -564,14 +165,14 @@ public class ChallengeSolver {
             // Orders
             IloNumVar[] Ovars = cplex.boolVarArray(inst.O);
             for (int o = 0; o < inst.O; o++) {
-                String nm = oLabel(o);
+                String nm = Helpers.oLabel(o);
                 Ovars[o].setName(nm);
                 nameToVar.put(nm, Ovars[o]);
             }
             // Aisles
             IloNumVar[] Avars = cplex.boolVarArray(inst.A);
             for (int a = 0; a < inst.A; a++) {
-                String nm = aLabel(a);
+                String nm = Helpers.aLabel(a);
                 Avars[a].setName(nm);
                 nameToVar.put(nm, Avars[a]);
             }
@@ -629,14 +230,14 @@ public class ChallengeSolver {
             double OPT_UB = inst.trivial_ub();
             double lambda = OPT_LB;
 
-            double elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0;
+            double elapsedTime = getCurrentTime(stopWatch) / 1000.0;
             double totalTime = 60 * 10 - elapsedTime; // 10 minutes minus preprocessing
             double timeTolerance = 20.0;
             double timeLimit = totalTime;
 
             cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
             // Upper cutoff -> use as an incumbent cutoff surrogate:
-            // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 0.0);
+            // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 0.0);
             cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 10);
 
             double dinkObj = Double.POSITIVE_INFINITY;
@@ -682,7 +283,7 @@ public class ChallengeSolver {
 
                 boolean improved = currentObj > bestSol.obj;
                 if (improved) {
-                    // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 0.0);
+                    // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 0.0);
                     cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 10);
                     bestSol = new CPLEXSolution(cplex, nameToVar, waveItemsExpr, remainingGraph, false);
                     System.out.printf("- Found a new best solution with obj = %.3f;%n", bestSol.obj);
@@ -728,7 +329,7 @@ public class ChallengeSolver {
                     improve.add(waveAislesExpr);
                     cplex.addGe(improve, TOL);
 
-                    // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, inst.UB);
+                    // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, inst.UB);
                     cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 1000000);
 
                     if (dinkObj < -TOL) {
@@ -753,20 +354,17 @@ public class ChallengeSolver {
             System.out.printf(" - %d/%d orders", bestSol.orders.size(), inst.O);
             System.out.printf(" - %d/%d aisles", bestSol.aisles.size(), inst.A);
             System.out.printf(" - %d items;%n", bestSol.wave_items);
-            System.out.printf(" - total time: %.2fs;%n", (System.currentTimeMillis() - startTime) / 1000.0);
+            System.out.printf(" - total time: %.2fs;%n", (getCurrentTime(stopWatch)) / 1000.0);
             System.out.printf(" - obj: %.2f;%n", bestSol.obj);
 
             cplex.end();
-
+            return bestSol;
         } catch (IloException e) {
             System.out.println("Error:\n" + e.getMessage());
         } catch (Exception e) {
             System.out.println("Encountered an error: " + e.getMessage());
         }
-    }
-
-    public ChallengeSolution solve(StopWatch stopWatch) {
-        // Implement your solution here
+        assert (false);
         return null;
     }
 
@@ -779,38 +377,44 @@ public class ChallengeSolver {
                 0);
     }
 
+    protected long getCurrentTime(StopWatch stopWatch) {
+        return stopWatch.getTime(TimeUnit.MILLISECONDS);
+    }
+
     protected boolean isSolutionFeasible(ChallengeSolution challengeSolution) {
-        Set<Integer> selectedOrders = challengeSolution.orders();
-        Set<Integer> visitedAisles = challengeSolution.aisles();
+        Set<Integer> selectedOrders = challengeSolution.get_orders();
+        Set<Integer> visitedAisles = challengeSolution.get_aisles();
         if (selectedOrders == null || visitedAisles == null || selectedOrders.isEmpty() || visitedAisles.isEmpty()) {
             return false;
         }
 
-        int[] totalUnitsPicked = new int[nItems];
-        int[] totalUnitsAvailable = new int[nItems];
+        int[] totalUnitsPicked = new int[inst.I];
+        int[] totalUnitsAvailable = new int[inst.I];
 
         // Calculate total units picked
-        for (int order : selectedOrders) {
-            for (Map.Entry<Integer, Integer> entry : orders.get(order).entrySet()) {
-                totalUnitsPicked[entry.getKey()] += entry.getValue();
-            }
-        }
-
-        // Calculate total units available
-        for (int aisle : visitedAisles) {
-            for (Map.Entry<Integer, Integer> entry : aisles.get(aisle).entrySet()) {
-                totalUnitsAvailable[entry.getKey()] += entry.getValue();
-            }
-        }
+        /*
+         * for (int order : selectedOrders) {
+         * for (Map.Entry<Integer, Integer> entry : orders.get(order).entrySet()) {
+         * totalUnitsPicked[entry.getKey()] += entry.getValue();
+         * }
+         * }
+         * 
+         * // Calculate total units available
+         * for (int aisle : visitedAisles) {
+         * for (Map.Entry<Integer, Integer> entry : aisles.get(aisle).entrySet()) {
+         * totalUnitsAvailable[entry.getKey()] += entry.getValue();
+         * }
+         * }
+         */
 
         // Check if the total units picked are within bounds
         int totalUnits = Arrays.stream(totalUnitsPicked).sum();
-        if (totalUnits < waveSizeLB || totalUnits > waveSizeUB) {
+        if (totalUnits < inst.LB || totalUnits > inst.UB) {
             return false;
         }
 
         // Check if the units picked do not exceed the units available
-        for (int i = 0; i < nItems; i++) {
+        for (int i = 0; i < inst.I; i++) {
             if (totalUnitsPicked[i] > totalUnitsAvailable[i]) {
                 return false;
             }
@@ -820,19 +424,21 @@ public class ChallengeSolver {
     }
 
     protected double computeObjectiveFunction(ChallengeSolution challengeSolution) {
-        Set<Integer> selectedOrders = challengeSolution.orders();
-        Set<Integer> visitedAisles = challengeSolution.aisles();
+        Set<Integer> selectedOrders = challengeSolution.get_orders();
+        Set<Integer> visitedAisles = challengeSolution.get_aisles();
         if (selectedOrders == null || visitedAisles == null || selectedOrders.isEmpty() || visitedAisles.isEmpty()) {
             return 0.0;
         }
         int totalUnitsPicked = 0;
 
         // Calculate total units picked
-        for (int order : selectedOrders) {
-            totalUnitsPicked += orders.get(order).values().stream()
-                    .mapToInt(Integer::intValue)
-                    .sum();
-        }
+        /*
+         * for (int order : selectedOrders) {
+         * totalUnitsPicked += orders.get(order).values().stream()
+         * .mapToInt(Integer::intValue)
+         * .sum();
+         * }
+         */
 
         // Calculate the number of visited aisles
         int numVisitedAisles = visitedAisles.size();
