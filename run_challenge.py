@@ -10,7 +10,7 @@ if CPLEX_PYTHON_PATH not in sys.path:
     sys.path.append(CPLEX_PYTHON_PATH)
 
 # Paths to the libraries
-CPLEX_PATH = r"C:\Program Files\IBM\ILOG\CPLEX_Studio_Community2212\cplex\bin\x64_win32"
+CPLEX_PATH = r"/home/franco/ibm/ILOG/CPLEX_Studio2211/cplex/bin/x86-64_linux/"
 OR_TOOLS_PATH = "$HOME/Documents/or-tools/build/lib/"
 
 USE_CPLEX = True

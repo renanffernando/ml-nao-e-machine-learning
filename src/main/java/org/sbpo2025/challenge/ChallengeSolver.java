@@ -160,7 +160,7 @@ public class ChallengeSolver {
             // cplex.setOut(null); // silence; set to System.out to debug
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt"))); // agora o log vai para o arquivo
             cplex.setParam(IloCplex.Param.Threads, 16);
-            cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Feasibility); // CPX_MIPEMPHASIS_FEASIBILITY
+            cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Heuristic); // CPX_MIPEMPHASIS_FEASIBILITY
 
             // Variables with names & maps for quick access by name
             Map<String, IloNumVar> nameToVar = new HashMap<>();
@@ -240,7 +240,7 @@ public class ChallengeSolver {
 
             cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
             // Upper cutoff -> use as an incumbent cutoff surrogate:
-            // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 0.0);
+            cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
             cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
 
             double dinkObj = Double.POSITIVE_INFINITY;
@@ -264,17 +264,7 @@ public class ChallengeSolver {
                     waveAislesExprObj.addTerm(-lambda, Avars[a]);
                 obj.add(waveAislesExprObj);
                 cplex.addMaximize(obj);
-                final double cur_lambda = OPT_LB;
-                final int max_its = inst.UB;
-                cplex.use(new IloCplex.MIPInfoCallback() {
-                    @Override
-                    protected void main() throws IloException {
-                        double objValue = getIncumbentObjValue();
-                        if (objValue * cur_lambda > 1.0 / max_its) {
-                            abort();
-                        }
-                    }
-                });
+
                 boolean solved = cplex.solve();
                 if (!solved)
                     throw new RuntimeException("No solution found!");
@@ -301,7 +291,7 @@ public class ChallengeSolver {
                 double currentObj = (waveAislesVal > 0.0) ? (waveItemsVal / waveAislesVal) : waveItemsVal;
                 boolean improved = currentObj > bestSol.obj;
                 if (improved) {
-                    // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 0.0);
+                    cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
                     cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
                     bestSol = new CPLEXSolution(cplex, nameToVar, waveItemsExpr, remainingGraph, false);
                     if (Math.abs(bestSol.wave_items - bestSol.wave_aisles * OPT_LB - dinkObj) >= 1e-3) {
