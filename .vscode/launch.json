@@ -6,19 +6,15 @@
     "configurations": [
         {
             "type": "java",
-            "name": "Current File",
+            "name": "Run Challenge",
             "request": "launch",
-            "mainClass": "${file}"
-        },
-        {
-            "type": "java",
-            "name": "MeliDinkelbach",
-            "request": "launch",
-            "mainClass": "MeliDinkelbach",
-            "projectName": "java_solver_84189a9a",
+            "mainClass": "org.sbpo2025.challenge.Challenge",
+            "projectName": "sbpo2025-challenge",
             "args": [
-                "${workspaceFolder}/../datasets/a/instance_0007.txt"
-            ]
+                "${workspaceFolder}/datasets/a/instance_0007.txt",
+                "${workspaceFolder}/out_a/instance_0007.txt"
+            ],
+            "preLaunchTask": "Maven Compile"
         }
     ]
 }

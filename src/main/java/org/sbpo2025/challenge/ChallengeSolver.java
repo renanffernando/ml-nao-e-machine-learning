@@ -2,6 +2,8 @@ package org.sbpo2025.challenge;
 
 import org.apache.commons.lang3.time.StopWatch;
 
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -155,7 +157,8 @@ public class ChallengeSolver {
 
             // ---- Build Dinkelbach model
             IloCplex cplex = new IloCplex();
-            cplex.setOut(null); // silence; set to System.out to debug
+            // cplex.setOut(null); // silence; set to System.out to debug
+            cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt"))); // agora o log vai para o arquivo
             cplex.setParam(IloCplex.Param.Threads, 16);
             cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Feasibility); // CPX_MIPEMPHASIS_FEASIBILITY
 
@@ -238,7 +241,7 @@ public class ChallengeSolver {
             cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
             // Upper cutoff -> use as an incumbent cutoff surrogate:
             // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 0.0);
-            cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 10);
+            cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
 
             double dinkObj = Double.POSITIVE_INFINITY;
 
@@ -261,31 +264,50 @@ public class ChallengeSolver {
                     waveAislesExprObj.addTerm(-lambda, Avars[a]);
                 obj.add(waveAislesExprObj);
                 cplex.addMaximize(obj);
-
+                final double cur_lambda = OPT_LB;
+                final int max_its = inst.UB;
+                cplex.use(new IloCplex.MIPInfoCallback() {
+                    @Override
+                    protected void main() throws IloException {
+                        double objValue = getIncumbentObjValue();
+                        if (objValue * cur_lambda > 1.0 / max_its) {
+                            abort();
+                        }
+                    }
+                });
                 boolean solved = cplex.solve();
                 if (!solved)
                     throw new RuntimeException("No solution found!");
+
+                int nsol = cplex.getSolnPoolNsolns();
+                if (nsol > 1)
+                    cplex.delSolnPoolSolns(1, nsol - 1);
+
                 // Update time limits
                 double iterDur = (System.currentTimeMillis() - iterStart) / 1000.0;
                 iterStart = System.currentTimeMillis();
                 timeLimit = Math.max(0, timeLimit - iterDur);
                 cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.max(0.0, timeLimit - timeTolerance));
 
-                dinkObj = Math.min(dinkObj, cplex.getObjValue());
+                dinkObj = cplex.getObjValue();
                 double elapsed = (System.currentTimeMillis() - dinkStart) / 1000.0;
                 System.out.printf("dinkelbach obj = %.6f; elapsed %.2fs of %.2fs;%n",
                         dinkObj, elapsed, Math.max(0.0, totalTime - timeTolerance));
 
                 // current objective = wave_items / wave_aisles (values at incumbent)
                 double waveItemsVal = cplex.getValue(waveItemsExpr);
-                double waveAislesVal = cplex.getValue(waveAislesExprObj);
-                double currentObj = (waveAislesVal > 0.0) ? (waveItemsVal / waveAislesVal) : waveItemsVal;
+                double waveAislesVal = cplex.getValue(waveAislesExprObj) / -lambda;
 
+                double currentObj = (waveAislesVal > 0.0) ? (waveItemsVal / waveAislesVal) : waveItemsVal;
                 boolean improved = currentObj > bestSol.obj;
                 if (improved) {
                     // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 0.0);
-                    cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 10);
+                    cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
                     bestSol = new CPLEXSolution(cplex, nameToVar, waveItemsExpr, remainingGraph, false);
+                    if (Math.abs(bestSol.wave_items - bestSol.wave_aisles * OPT_LB - dinkObj) >= 1e-3) {
+                        throw new IllegalStateException(
+                                "Invariant violated: wave_items != wave_aisles * OPT_LB + dinkObj");
+                    }
                     System.out.printf("- Found a new best solution with obj = %.3f;%n", bestSol.obj);
                     bestSubSolution(bestSol, inst.LB);
                 }

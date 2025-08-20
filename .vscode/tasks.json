@@ -1,0 +1,34 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Maven Compile",
+            "type": "shell",
+            "command": "mvn compile",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$maven-compile"
+            ]
+        },
+        {
+            "label": "Run Challenge",
+            "type": "shell",
+            "command": "mvn exec:java",
+            "args": [
+                "-Dexec.mainClass=org.sbpo2025.challenge.Challenge",
+                "-Dexec.args=datasets/a/instance_0007.txt out_a/instance_0007.txt"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "dependsOn": [
+                "Maven Compile"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}
