@@ -25,10 +25,10 @@ public class ChallengeSolver {
         this.inst = instance;
     }
 
-    static void bestSubSolution(ChallengeSolution sol, int LB) {
+    static boolean bestSubSolution(ChallengeSolution sol, int LB) {
         List<Graph> comps = sol.getComponents();
         if (comps.size() <= 1)
-            return;
+            return false;
 
         double bestLocal = Double.NEGATIVE_INFINITY;
         Graph bestComp = null;
@@ -58,7 +58,9 @@ public class ChallengeSolver {
             bestComp.graphWeight = bestCompSize;
             System.out.printf("- Found a better sub-solution with obj = %.3f;%n", bestLocal);
             sol.restrict_solution(bestComp);
+            return true;
         }
+        return false;
     }
 
     // -------------------------- CPLEX Solution ------------------------------
@@ -237,6 +239,7 @@ public class ChallengeSolver {
             double timeLimit = totalTime;
 
             cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(45.0, totalTime));
+            cplex.setParam(IloCplex.Param.MIP.Pool.Capacity, 3);
             // Upper cutoff -> use as an incumbent cutoff surrogate:
             // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
             // cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 2);
@@ -290,9 +293,14 @@ public class ChallengeSolver {
                 double waveAislesVal = cplex.getValue(waveAislesExprObj) / -lambda;
 
                 double currentObj = (waveAislesVal > 0.0) ? (waveItemsVal / waveAislesVal) : waveItemsVal;
-                boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - 1e6;
+                if (!is_first_iteration
+                        && removed.isEmpty() && currentObj < -TOL) {
+                    throw new IllegalStateException(
+                            "Negative Objective Function");
+                }
+                boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - 1e-6;
                 if (improved) {
-                    cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
+                    cplex.setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 1.0 / inst.UB);
                     cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 3);
                     bestSol = new CPLEXSolution(cplex, nameToVar, waveItemsExpr, remainingGraph, false);
                     if (!is_first_iteration
@@ -301,7 +309,19 @@ public class ChallengeSolver {
                                 "Invariant violated: wave_items != wave_aisles * OPT_LB + dinkObj");
                     }
                     System.out.printf("- Found a new best solution with obj = %.3f;%n", bestSol.obj);
-                    bestSubSolution(bestSol, inst.LB);
+                    if (bestSubSolution(bestSol, inst.LB)) {
+                        ArrayList<IloNumVar> vars = new ArrayList<>();
+                        for (Integer aisle : bestSol.get_aisles()) {
+                            vars.add(nameToVar.get(Helpers.aLabel(aisle)));
+                        }
+                        for (Integer order : bestSol.get_orders()) {
+                            vars.add(nameToVar.get(Helpers.oLabel(order)));
+                        }
+                        double[] values = new double[vars.size()];
+                        Arrays.fill(values, 1.0);
+                        cplex.addMIPStart(vars.toArray(new IloNumVar[0]), values,
+                                IloCplex.MIPStartEffort.Repair, "MyStart");
+                    }
                 }
                 is_first_iteration = false;
 
@@ -329,8 +349,12 @@ public class ChallengeSolver {
                         removed.clear();
                         remainingGraph = inst.underlying_graph;
                         continue;
-                    } else
-                        break;
+                    } else {
+                        if (cplex.getStatus() == IloCplex.Status.Optimal)
+                            break;
+                        throw new IllegalStateException(
+                                "Solution should be optimal");
+                    }
                 } else if (nameToVar.size() > 2000) {
                     Set<String> solution_nodes = new HashSet<String>();
                     solution_nodes.addAll(bestSol.aisle_nodes);
