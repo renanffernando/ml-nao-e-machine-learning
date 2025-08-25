@@ -85,13 +85,14 @@ public class ChallengeSolver {
             }
             return vals;
         }
+
     }
 
     // -------------------- Preprocessing: min aisles cover per order ----------
     static int[] minOrdersCover(Instance inst) throws IloException {
         int[] result = new int[inst.O];
         IloCplex setModel = new IloCplex();
-        setModel.setParam(IloCplex.Param.Threads, 16);
+        setModel.setParam(IloCplex.Param.Threads, 8);
         setModel.setOut(null);
         setModel.setWarning(null);
 
@@ -108,11 +109,11 @@ public class ChallengeSolver {
             for (int i : inst.order_items.get(o)) {
                 IloLinearNumExpr lhs = setModel.linearNumExpr();
                 for (int a : inst.item_aisles.get(i)) {
-                    int cap = inst.u_ai[a][i];
+                    int cap = inst.u_ai[a].get(i);
                     if (cap > 0)
                         lhs.addTerm(cap, Avars[a]);
                 }
-                int demand = inst.u_oi[o][i];
+                int demand = inst.u_oi[o].get(i);
                 IloRange c = setModel.addGe(lhs, demand);
                 currentCons.add(c);
             }
@@ -159,7 +160,7 @@ public class ChallengeSolver {
             IloCplex cplex = new IloCplex();
             // cplex.setOut(null); // silence; set to System.out to debug
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt"))); // agora o log vai para o arquivo
-            cplex.setParam(IloCplex.Param.Threads, 16);
+            cplex.setParam(IloCplex.Param.Threads, 8);
             cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Heuristic); // CPX_MIPEMPHASIS_FEASIBILITY
 
             // Variables with names & maps for quick access by name
@@ -184,27 +185,27 @@ public class ChallengeSolver {
             IloLinearNumExpr waveItemsExpr = cplex.linearNumExpr();
             for (int o = 0; o < inst.O; o++) {
                 int sum = 0;
-                for (int i = 0; i < inst.I; i++)
-                    sum += inst.u_oi[o][i];
+                for (int val : inst.u_oi[o].values())
+                    sum += val;
                 if (sum != 0)
                     waveItemsExpr.addTerm(sum, Ovars[o]);
             }
 
             // Operational limits on items
-            cplex.addGe(waveItemsExpr, inst.LB);
+            var lbConst = cplex.addGe(waveItemsExpr, inst.LB);
             cplex.addLe(waveItemsExpr, inst.UB);
 
             // Capacity constraints per item
             for (int i = 0; i < inst.I; i++) {
                 IloLinearNumExpr dem = cplex.linearNumExpr();
                 for (int o : inst.item_orders.get(i)) {
-                    int demand = inst.u_oi[o][i];
+                    int demand = inst.u_oi[o].getOrDefault(i, 0);
                     if (demand > 0)
                         dem.addTerm(demand, Ovars[o]);
                 }
                 IloLinearNumExpr cap = cplex.linearNumExpr();
                 for (int a : inst.item_aisles.get(i)) {
-                    int capacity = inst.u_ai[a][i];
+                    int capacity = inst.u_ai[a].get(i);
                     if (capacity > 0)
                         cap.addTerm(capacity, Avars[a]);
                 }
@@ -219,9 +220,6 @@ public class ChallengeSolver {
                 nameToVar.remove(node);
             }
 
-            // Utility to fix/reset variables
-            Runnable resetRemoved = () -> {
-            }; // will be set later
             Set<String> removed = new HashSet<>();
 
             // --------------- Dinkelbach loop ---------------
@@ -238,26 +236,28 @@ public class ChallengeSolver {
             double timeTolerance = 20.0;
             double timeLimit = totalTime;
 
-            cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
+            cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(45.0, totalTime));
             // Upper cutoff -> use as an incumbent cutoff surrogate:
-            cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
-            cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
-
-            double dinkObj = Double.POSITIVE_INFINITY;
+            // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
+            // cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 2);
 
             System.out.println("\nStarting Dinkelbach search...");
             long dinkStart = System.currentTimeMillis();
             long iterStart = System.currentTimeMillis();
+            boolean is_first_iteration = true;
+            lbConst.setLB(inst.UB);
 
-            while (Math.abs(dinkObj) > TOL) {
+            while (true) {
                 double GAP = (OPT_UB - OPT_LB) / Math.max(OPT_LB, 1e-12);
                 System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ",
                         OPT_LB, OPT_UB, 100.0 * GAP, lambda);
 
                 // Maximize wave_items - lambda * wave_aisles
                 IloLinearNumExpr obj = cplex.linearNumExpr();
-                obj.add(waveItemsExpr);
-
+                if (!is_first_iteration) {
+                    obj.add(waveItemsExpr);
+                    lbConst.setLB(inst.LB);
+                }
                 // wave_aisles expression
                 IloLinearNumExpr waveAislesExprObj = cplex.linearNumExpr();
                 for (int a = 0; a < inst.A; a++)
@@ -269,9 +269,10 @@ public class ChallengeSolver {
                 if (!solved)
                     throw new RuntimeException("No solution found!");
 
-                int nsol = cplex.getSolnPoolNsolns();
-                if (nsol > 1)
-                    cplex.delSolnPoolSolns(1, nsol - 1);
+                if (cplex.getStatus() == IloCplex.Status.Infeasible) {
+                    is_first_iteration = false;
+                    continue;
+                }
 
                 // Update time limits
                 double iterDur = (System.currentTimeMillis() - iterStart) / 1000.0;
@@ -279,7 +280,7 @@ public class ChallengeSolver {
                 timeLimit = Math.max(0, timeLimit - iterDur);
                 cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.max(0.0, timeLimit - timeTolerance));
 
-                dinkObj = cplex.getObjValue();
+                double dinkObj = cplex.getObjValue();
                 double elapsed = (System.currentTimeMillis() - dinkStart) / 1000.0;
                 System.out.printf("dinkelbach obj = %.6f; elapsed %.2fs of %.2fs;%n",
                         dinkObj, elapsed, Math.max(0.0, totalTime - timeTolerance));
@@ -289,18 +290,20 @@ public class ChallengeSolver {
                 double waveAislesVal = cplex.getValue(waveAislesExprObj) / -lambda;
 
                 double currentObj = (waveAislesVal > 0.0) ? (waveItemsVal / waveAislesVal) : waveItemsVal;
-                boolean improved = currentObj > bestSol.obj;
+                boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - 1e6;
                 if (improved) {
                     cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
-                    cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
+                    cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 3);
                     bestSol = new CPLEXSolution(cplex, nameToVar, waveItemsExpr, remainingGraph, false);
-                    if (Math.abs(bestSol.wave_items - bestSol.wave_aisles * OPT_LB - dinkObj) >= 1e-3) {
+                    if (!is_first_iteration
+                            && Math.abs(bestSol.wave_items - bestSol.wave_aisles * OPT_LB - dinkObj) >= 1e-3) {
                         throw new IllegalStateException(
                                 "Invariant violated: wave_items != wave_aisles * OPT_LB + dinkObj");
                     }
                     System.out.printf("- Found a new best solution with obj = %.3f;%n", bestSol.obj);
                     bestSubSolution(bestSol, inst.LB);
                 }
+                is_first_iteration = false;
 
                 // remove objective to re-set next iteration
                 cplex.delete(cplex.getObjective());
@@ -325,29 +328,30 @@ public class ChallengeSolver {
                         System.out.printf("- %d fixed variables were restored;%n", removed.size());
                         removed.clear();
                         remainingGraph = inst.underlying_graph;
-                        dinkObj = Double.POSITIVE_INFINITY;
                         continue;
+                    } else
+                        break;
+                } else if (nameToVar.size() > 2000) {
+                    Set<String> solution_nodes = new HashSet<String>();
+                    solution_nodes.addAll(bestSol.aisle_nodes);
+                    solution_nodes.addAll(bestSol.order_nodes);
+                    Map<String, Integer> mapDistance = remainingGraph.compute_distance_from_set(solution_nodes);
+                    Set<String> to_remove = new HashSet<>();
+                    Set<String> to_keep = new HashSet<>();
+                    for (Map.Entry<String, Integer> entry : mapDistance.entrySet()) {
+                        if (entry.getValue() <= 1)
+                            to_keep.add(entry.getKey());
+                        else if (!removed.contains(entry.getKey()))
+                            to_remove.add(entry.getKey());
                     }
+                    for (String s : to_remove)
+                        nameToVar.get(s).setUB(0.0);
+                    removed.addAll(to_remove);
+                    remainingGraph.subgraph(to_keep);
+                    System.out.println("- " + to_remove.size() + " variables were fixed;");
+                    System.out.println("- " + removed.size() + " variables out of "
+                            + nameToVar.size() + " are fixed;");
 
-                    // Enforce some improvement
-                    // wave_items - lambda * wave_aisles >= TOL
-                    IloLinearNumExpr improve = cplex.linearNumExpr();
-                    improve.add(waveItemsExpr);
-
-                    IloLinearNumExpr waveAislesExpr = cplex.linearNumExpr();
-                    for (int a = 0; a < inst.A; a++)
-                        waveAislesExpr.addTerm(-lambda, Avars[a]);
-
-                    improve.add(waveAislesExpr);
-                    cplex.addGe(improve, TOL);
-
-                    // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, inst.UB);
-                    cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 1000000);
-
-                    if (dinkObj < -TOL) {
-                        System.out.println("- The solver stopped too early, restarting the iteration;");
-                        dinkObj = Double.POSITIVE_INFINITY;
-                    }
                 }
             }
 

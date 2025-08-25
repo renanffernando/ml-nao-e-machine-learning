@@ -8,8 +8,10 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 
 public class Graph {
     Map<String, Set<String>> adj = new HashMap<>();
@@ -104,5 +106,36 @@ public class Graph {
             comps.add(comp);
         }
         return comps;
+    }
+
+    Map<String, Integer> compute_distance_from_set(Set<String> node_set) {
+        Map<String, Integer> distMap = new HashMap<>();
+        Queue<String> queue = new LinkedList<>();
+
+        // Initialize distances
+        for (String node : adj.keySet()) {
+            distMap.put(node, Integer.MAX_VALUE);
+        }
+
+        // Initialize sources
+        for (String node : node_set) {
+            distMap.put(node, 0);
+            queue.add(node);
+        }
+
+        // Multi-source BFS
+        while (!queue.isEmpty()) {
+            String u = queue.poll();
+            int distU = distMap.get(u);
+
+            for (String v : adj.getOrDefault(u, new HashSet<String>())) {
+                if (distMap.get(v) == Integer.MAX_VALUE) {
+                    distMap.put(v, distU + 1);
+                    queue.add(v);
+                }
+            }
+        }
+
+        return distMap;
     }
 }

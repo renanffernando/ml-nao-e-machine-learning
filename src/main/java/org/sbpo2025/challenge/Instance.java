@@ -5,17 +5,17 @@ import java.io.EOFException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class Instance {
     int O, I, A;
-    int[][] u_oi; // O x I
-    int[][] u_ai; // A x I
+    Map<Integer, Integer>[] u_oi;
+    Map<Integer, Integer>[] u_ai;
 
     List<Set<Integer>> order_items = new ArrayList<>(); // per order: items present
     List<Set<Integer>> aisle_items = new ArrayList<>(); // per aisle: items present
@@ -57,8 +57,9 @@ public class Instance {
             for (int a = 0; a < A; a++)
                 underlying_graph.addNode(Helpers.aLabel(a));
 
-            u_oi = new int[O][I];
+            u_oi = new HashMap[O];
             for (int o = 0; o < O; o++) {
+                u_oi[o] = new HashMap<Integer, Integer>();
                 String line = nextNonEmptyLine(br);
                 int[] data = parseIntLine(line);
 
@@ -67,7 +68,7 @@ public class Instance {
                 for (int p = 1; p + 1 < data.length; p += 2) {
                     int idx = data[p];
                     int qty = data[p + 1];
-                    u_oi[o][idx] = qty;
+                    u_oi[o].put(idx, qty);
                     if (qty > 0) {
                         item_orders.get(idx).add(o);
                         itemsHere.add(idx);
@@ -79,26 +80,30 @@ public class Instance {
             }
 
             // Read aisles matrix: also sparse pairs
-            u_ai = new int[A][I];
+            u_ai = new HashMap[A];
             for (int a = 0; a < A; a++) {
+                u_ai[a] = new HashMap<Integer, Integer>();
                 String line = nextNonEmptyLine(br);
                 int[] data = parseIntLine(line);
                 Set<Integer> itemsHere = new HashSet<>();
                 for (int p = 1; p + 1 < data.length; p += 2) {
                     int idx = data[p];
                     int qty = data[p + 1];
-                    u_ai[a][idx] = qty;
+                    u_ai[a].put(idx, qty);
                     if (qty > 0) {
                         item_aisles.get(idx).add(a);
                         itemsHere.add(idx);
                     }
                 }
                 aisle_items.add(itemsHere);
+                Set<Integer> seenOrders = new HashSet<>();
 
-                for (int o = 0; o < O; o++) {
-                    // if aisle a shares any item with order o, add edge
-                    if (!Collections.disjoint(aisle_items.get(a), order_items.get(o))) {
-                        underlying_graph.addEdge(Helpers.oLabel(o), Helpers.aLabel(a));
+                for (int i : itemsHere) {
+                    for (int o : item_orders.get(i)) {
+                        if (!seenOrders.contains(o)) {
+                            seenOrders.add(o);
+                            underlying_graph.addEdge(Helpers.oLabel(o), Helpers.aLabel(a));
+                        }
                     }
                 }
             }
@@ -132,7 +137,7 @@ public class Instance {
         for (String n : trivial_nodes)
             underlying_graph.removeNode(n);
         for (int o : invalidOrders)
-            Arrays.fill(u_oi[o], 0);
+            u_oi[o].clear();
     }
 
     double trivial_ub() {
@@ -141,8 +146,8 @@ public class Instance {
         List<Integer> numAisleItems = new ArrayList<>();
         for (int a = 0; a < A; a++) {
             int tot = 0;
-            for (int i = 0; i < I; i++)
-                tot += u_ai[a][i];
+            for (int val : u_ai[a].values())
+                tot += val;
             numAisleItems.add(tot);
         }
         numAisleItems.sort(Comparator.reverseOrder());
