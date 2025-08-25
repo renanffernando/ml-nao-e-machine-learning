@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 public class ChallengeSolution {
-    boolean empty = true;
+    boolean empty;
 
     Map<String, Integer> variables = new HashMap<>();
     Set<String> order_nodes = new HashSet<>();

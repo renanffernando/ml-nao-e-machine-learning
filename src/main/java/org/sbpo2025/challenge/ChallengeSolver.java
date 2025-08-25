@@ -66,10 +66,10 @@ public class ChallengeSolver {
     // -------------------------- CPLEX Solution ------------------------------
     static class CPLEXSolution extends ChallengeSolution {
         CPLEXSolution(IloCplex cplex,
-                Map<String, IloNumVar> nameToVar,
-                IloNumExpr waveItemsExpr,
-                Graph instanceGraph,
-                boolean empty) throws IloException {
+                      Map<String, IloNumVar> nameToVar,
+                      IloNumExpr waveItemsExpr,
+                      Graph instanceGraph,
+                      boolean empty) throws IloException {
             super(
                     empty ? null : extractSolutionValues(cplex, nameToVar),
                     empty ? 0 : (int) Math.round(cplex.getValue(waveItemsExpr)),
@@ -78,7 +78,7 @@ public class ChallengeSolver {
         }
 
         private static Map<String, Integer> extractSolutionValues(IloCplex cplex,
-                Map<String, IloNumVar> nameToVar)
+                                                                  Map<String, IloNumVar> nameToVar)
                 throws IloException {
             Map<String, Integer> vals = new HashMap<>();
             for (var e : nameToVar.entrySet()) {
@@ -438,7 +438,7 @@ public class ChallengeSolver {
          * totalUnitsPicked[entry.getKey()] += entry.getValue();
          * }
          * }
-         * 
+         *
          * // Calculate total units available
          * for (int aisle : visitedAisles) {
          * for (Map.Entry<Integer, Integer> entry : aisles.get(aisle).entrySet()) {

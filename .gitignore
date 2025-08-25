@@ -179,3 +179,7 @@ cython_debug/
 
 # Java lib files exception
 !java_solver/lib/
+
+# Solver output
+*.out
+cplex_output.txt

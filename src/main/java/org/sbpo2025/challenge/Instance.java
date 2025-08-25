@@ -38,10 +38,10 @@ public class Instance {
 
             // First line: O I A
             {
-                String[] toks = nextNonEmptyLine(br).trim().split("\\s+");
-                O = Integer.parseInt(toks[0]);
-                I = Integer.parseInt(toks[1]);
-                A = Integer.parseInt(toks[2]);
+                String[] tokens = nextNonEmptyLine(br).trim().split("\\s+");
+                O = Integer.parseInt(tokens[0]);
+                I = Integer.parseInt(tokens[1]);
+                A = Integer.parseInt(tokens[2]);
             }
 
             item_orders = new ArrayList<>(I);
@@ -59,7 +59,7 @@ public class Instance {
 
             u_oi = new HashMap[O];
             for (int o = 0; o < O; o++) {
-                u_oi[o] = new HashMap<Integer, Integer>();
+                u_oi[o] = new HashMap<>();
                 String line = nextNonEmptyLine(br);
                 int[] data = parseIntLine(line);
 
@@ -82,7 +82,7 @@ public class Instance {
             // Read aisles matrix: also sparse pairs
             u_ai = new HashMap[A];
             for (int a = 0; a < A; a++) {
-                u_ai[a] = new HashMap<Integer, Integer>();
+                u_ai[a] = new HashMap<>();
                 String line = nextNonEmptyLine(br);
                 int[] data = parseIntLine(line);
                 Set<Integer> itemsHere = new HashSet<>();
@@ -168,8 +168,7 @@ public class Instance {
     private static String nextNonEmptyLine(BufferedReader br) throws IOException {
         String line;
         while ((line = br.readLine()) != null) {
-            if (!line.trim().isEmpty())
-                return line;
+            if (!line.trim().isEmpty()) return line;
         }
         throw new EOFException("Unexpected end of file.");
     }
@@ -181,4 +180,4 @@ public class Instance {
             arr[i] = Integer.parseInt(toks[i]);
         return arr;
     }
-};
+}
