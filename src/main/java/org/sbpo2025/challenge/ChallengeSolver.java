@@ -63,84 +63,58 @@ public class ChallengeSolver {
         return false;
     }
 
-    // -------------------------- CPLEX Solution ------------------------------
-    static class CPLEXSolution extends ChallengeSolution {
-        CPLEXSolution(IloCplex cplex,
-                      Map<String, IloNumVar> nameToVar,
-                      IloNumExpr waveItemsExpr,
-                      Graph instanceGraph,
-                      boolean empty) throws IloException {
-            super(
-                    empty ? null : extractSolutionValues(cplex, nameToVar),
-                    empty ? 0 : (int) Math.round(cplex.getValue(waveItemsExpr)),
-                    instanceGraph,
-                    empty);
-        }
-
-        private static Map<String, Integer> extractSolutionValues(IloCplex cplex,
-                                                                  Map<String, IloNumVar> nameToVar)
-                throws IloException {
-            Map<String, Integer> vals = new HashMap<>();
-            for (var e : nameToVar.entrySet()) {
-                double v = cplex.getValue(e.getValue());
-                vals.put(e.getKey(), (int) Math.round(v));
-            }
-            return vals;
-        }
-
-    }
-
     // -------------------- Preprocessing: min aisles cover per order ----------
     static int[] minOrdersCover(Instance inst) throws IloException {
         int[] result = new int[inst.O];
-        IloCplex setModel = new IloCplex();
-        setModel.setParam(IloCplex.Param.Threads, 8);
-        setModel.setOut(null);
-        setModel.setWarning(null);
+        try (IloCplex setModel = new IloCplex()) {
+            setModel.setParam(IloCplex.Param.Threads, 8);
+            setModel.setOut(null);
+            setModel.setWarning(null);
 
-        // Decision: select aisles
-        IloNumVar[] Avars = setModel.boolVarArray(inst.A);
-        for (int a = 0; a < inst.A; a++)
-            Avars[a].setName(Helpers.aLabel(a));
+            // Decision: select aisles
+            IloNumVar[] Avars = setModel.boolVarArray(inst.A);
+            for (int a = 0; a < inst.A; a++)
+                Avars[a].setName(Helpers.aLabel(a));
 
-        // We'll rebuild constraints per order
-        List<IloRange> currentCons = new ArrayList<>();
+            // We'll rebuild constraints per order
+            List<IloRange> currentCons = new ArrayList<>();
 
-        for (int o = 0; o < inst.O; o++) {
-            // Add covering constraints for each item in order o
-            for (int i : inst.order_items.get(o)) {
-                IloLinearNumExpr lhs = setModel.linearNumExpr();
-                for (int a : inst.item_aisles.get(i)) {
-                    int cap = inst.u_ai[a].get(i);
-                    if (cap > 0)
-                        lhs.addTerm(cap, Avars[a]);
+            for (int o = 0; o < inst.O; o++) {
+                // Add covering constraints for each item in order o
+                for (int i : inst.order_items.get(o)) {
+                    IloLinearNumExpr lhs = setModel.linearNumExpr();
+                    for (int a : inst.item_aisles.get(i)) {
+                        int cap = inst.u_ai.get(a).get(i);
+                        if (cap > 0)
+                            lhs.addTerm(cap, Avars[a]);
+                    }
+                    int demand = inst.u_oi.get(o).get(i);
+                    IloRange c = setModel.addGe(lhs, demand);
+                    currentCons.add(c);
                 }
-                int demand = inst.u_oi[o].get(i);
-                IloRange c = setModel.addGe(lhs, demand);
-                currentCons.add(c);
-            }
-            // Objective: minimize sum A
-            IloLinearNumExpr obj = setModel.linearNumExpr();
-            for (IloNumVar v : Avars)
-                obj.addTerm(1.0, v);
-            setModel.addMinimize(obj);
+                // Objective: minimize sum A
+                IloLinearNumExpr obj = setModel.linearNumExpr();
+                for (IloNumVar v : Avars)
+                    obj.addTerm(1.0, v);
+                setModel.addMinimize(obj);
 
-            boolean solved = setModel.solve();
-            if (solved && setModel.getMIPRelativeGap() == 0.0) {
-                result[o] = (int) Math.round(setModel.getObjValue());
-            } else {
-                result[o] = 0; // infeasible or non-optimal -> mark as invalid later if 0
+                boolean solved = setModel.solve();
+                if (solved && setModel.getMIPRelativeGap() == 0.0) {
+                    result[o] = (int) Math.round(setModel.getObjValue());
+                } else {
+                    result[o] = 0; // infeasible or non-optimal -> mark as invalid later if 0
+                }
+
+                // Clear constraints and objective for the next order
+                setModel.remove(setModel.getObjective());
+                if (!currentCons.isEmpty()) {
+                    setModel.remove(currentCons.toArray(new IloRange[0]));
+                    currentCons.clear();
+                }
             }
 
-            // Clear constraints & objective for next order
-            setModel.remove(setModel.getObjective());
-            if (!currentCons.isEmpty()) {
-                setModel.remove(currentCons.toArray(new IloRange[0]));
-                currentCons.clear();
-            }
+            setModel.end();
         }
-
-        setModel.end();
         return result;
     }
 
@@ -153,10 +127,9 @@ public class ChallengeSolver {
             for (int o = 0; o < inst.O; o++)
                 if (minCovers[o] == 0)
                     invalid.add(o);
-            inst.clear_orders(invalid.stream().mapToInt(i -> i).toArray());
+            inst.clear_orders(invalid);
 
-            System.out.printf("Preprocessing completed after %.2fs%n",
-                    getCurrentTime(stopWatch) / 1000.0);
+            System.out.printf("Preprocessing completed after %.2fs%n", getCurrentTime(stopWatch) / 1E3);
 
             // ---- Build Dinkelbach model
             IloCplex cplex = new IloCplex();
@@ -165,7 +138,7 @@ public class ChallengeSolver {
             cplex.setParam(IloCplex.Param.Threads, 8);
             cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Heuristic); // CPX_MIPEMPHASIS_FEASIBILITY
 
-            // Variables with names & maps for quick access by name
+            // Variables with names and maps for quick access by name
             Map<String, IloNumVar> nameToVar = new HashMap<>();
 
             // Orders
@@ -187,7 +160,7 @@ public class ChallengeSolver {
             IloLinearNumExpr waveItemsExpr = cplex.linearNumExpr();
             for (int o = 0; o < inst.O; o++) {
                 int sum = 0;
-                for (int val : inst.u_oi[o].values())
+                for (int val : inst.u_oi.get(o).values())
                     sum += val;
                 if (sum != 0)
                     waveItemsExpr.addTerm(sum, Ovars[o]);
@@ -201,13 +174,13 @@ public class ChallengeSolver {
             for (int i = 0; i < inst.I; i++) {
                 IloLinearNumExpr dem = cplex.linearNumExpr();
                 for (int o : inst.item_orders.get(i)) {
-                    int demand = inst.u_oi[o].getOrDefault(i, 0);
+                    int demand = inst.u_oi.get(o).getOrDefault(i, 0);
                     if (demand > 0)
                         dem.addTerm(demand, Ovars[o]);
                 }
                 IloLinearNumExpr cap = cplex.linearNumExpr();
                 for (int a : inst.item_aisles.get(i)) {
-                    int capacity = inst.u_ai[a].get(i);
+                    int capacity = inst.u_ai.get(a).get(i);
                     if (capacity > 0)
                         cap.addTerm(capacity, Avars[a]);
                 }
@@ -225,7 +198,7 @@ public class ChallengeSolver {
             Set<String> removed = new HashSet<>();
 
             // --------------- Dinkelbach loop ---------------
-            CPLEXSolution bestSol = new CPLEXSolution(null, null, null, null, true);
+            CPLEXSolution bestSol = new CPLEXSolution();
             Graph remainingGraph = inst.underlying_graph; // search space
 
             final double TOL = 1e-6;
@@ -238,7 +211,7 @@ public class ChallengeSolver {
             double timeTolerance = 20.0;
             double timeLimit = totalTime;
 
-            cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(45.0, totalTime));
+            cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
             cplex.setParam(IloCplex.Param.MIP.Pool.Capacity, 3);
             // Upper cutoff -> use as an incumbent cutoff surrogate:
             // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
@@ -251,9 +224,9 @@ public class ChallengeSolver {
             lbConst.setLB(inst.UB);
 
             while (true) {
-                double GAP = (OPT_UB - OPT_LB) / Math.max(OPT_LB, 1e-12);
+                double GAP = (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
                 System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ",
-                        OPT_LB, OPT_UB, 100.0 * GAP, lambda);
+                        OPT_LB, OPT_UB, 100 * GAP, lambda);
 
                 // Maximize wave_items - lambda * wave_aisles
                 IloLinearNumExpr obj = cplex.linearNumExpr();
@@ -325,7 +298,7 @@ public class ChallengeSolver {
                 }
                 is_first_iteration = false;
 
-                // remove objective to re-set next iteration
+                // remove objective to re-set the next iteration
                 cplex.delete(cplex.getObjective());
 
                 if (timeLimit <= timeTolerance)
@@ -417,8 +390,12 @@ public class ChallengeSolver {
                 0);
     }
 
+    protected long getCurrentTime(StopWatch stopWatch, TimeUnit unit) {
+        return stopWatch.getTime(unit);
+    }
+
     protected long getCurrentTime(StopWatch stopWatch) {
-        return stopWatch.getTime(TimeUnit.MILLISECONDS);
+        return getCurrentTime(stopWatch, TimeUnit.MILLISECONDS);
     }
 
     protected boolean isSolutionFeasible(ChallengeSolution challengeSolution) {

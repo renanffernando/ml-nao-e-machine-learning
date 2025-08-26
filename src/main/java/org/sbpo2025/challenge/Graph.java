@@ -47,7 +47,7 @@ public class Graph {
 
     void removeNode(String n) {
         if (!adj.containsKey(n)) return;
-        for (String nb : new ArrayList<>(adj.get(n))) {
+        for (String nb : adj.get(n)) {
             adj.get(nb).remove(n);
         }
         adj.remove(n);

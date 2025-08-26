@@ -14,8 +14,8 @@ import java.util.Set;
 
 public class Instance {
     int O, I, A;
-    Map<Integer, Integer>[] u_oi;
-    Map<Integer, Integer>[] u_ai;
+    List<Map<Integer, Integer>> u_oi;
+    List<Map<Integer, Integer>> u_ai;
 
     List<Set<Integer>> order_items = new ArrayList<>(); // per order: items present
     List<Set<Integer>> aisle_items = new ArrayList<>(); // per aisle: items present
@@ -57,9 +57,9 @@ public class Instance {
             for (int a = 0; a < A; a++)
                 underlying_graph.addNode(Helpers.aLabel(a));
 
-            u_oi = new HashMap[O];
+            u_oi = new ArrayList<>(O);
             for (int o = 0; o < O; o++) {
-                u_oi[o] = new HashMap<>();
+                u_oi.add(new HashMap<>());
                 String line = nextNonEmptyLine(br);
                 int[] data = parseIntLine(line);
 
@@ -68,7 +68,7 @@ public class Instance {
                 for (int p = 1; p + 1 < data.length; p += 2) {
                     int idx = data[p];
                     int qty = data[p + 1];
-                    u_oi[o].put(idx, qty);
+                    u_oi.get(o).put(idx, qty);
                     if (qty > 0) {
                         item_orders.get(idx).add(o);
                         itemsHere.add(idx);
@@ -80,16 +80,16 @@ public class Instance {
             }
 
             // Read aisles matrix: also sparse pairs
-            u_ai = new HashMap[A];
+            u_ai = new ArrayList<>(A);
             for (int a = 0; a < A; a++) {
-                u_ai[a] = new HashMap<>();
+                u_ai.add(new HashMap<>());
                 String line = nextNonEmptyLine(br);
                 int[] data = parseIntLine(line);
                 Set<Integer> itemsHere = new HashSet<>();
                 for (int p = 1; p + 1 < data.length; p += 2) {
                     int idx = data[p];
                     int qty = data[p + 1];
-                    u_ai[a].put(idx, qty);
+                    u_ai.get(a).put(idx, qty);
                     if (qty > 0) {
                         item_aisles.get(idx).add(a);
                         itemsHere.add(idx);
@@ -109,9 +109,9 @@ public class Instance {
             }
 
             {
-                String[] toks = nextNonEmptyLine(br).trim().split("\\s+");
-                LB = Integer.parseInt(toks[0]);
-                UB = Integer.parseInt(toks[1]);
+                String[] tokens = nextNonEmptyLine(br).trim().split("\\s+");
+                LB = Integer.parseInt(tokens[0]);
+                UB = Integer.parseInt(tokens[1]);
             }
 
             br.close();
@@ -128,7 +128,7 @@ public class Instance {
         return comps;
     }
 
-    void clear_orders(int[] invalidOrders) {
+    void clear_orders(List<Integer> invalidOrders) {
         for (int o : invalidOrders)
             invalid_order_nodes.add(Helpers.oLabel(o));
         for (String n : invalid_order_nodes)
@@ -137,7 +137,7 @@ public class Instance {
         for (String n : trivial_nodes)
             underlying_graph.removeNode(n);
         for (int o : invalidOrders)
-            u_oi[o].clear();
+            u_oi.get(o).clear();
     }
 
     double trivial_ub() {
@@ -146,7 +146,7 @@ public class Instance {
         List<Integer> numAisleItems = new ArrayList<>();
         for (int a = 0; a < A; a++) {
             int tot = 0;
-            for (int val : u_ai[a].values())
+            for (int val : u_ai.get(a).values())
                 tot += val;
             numAisleItems.add(tot);
         }
@@ -174,10 +174,10 @@ public class Instance {
     }
 
     private static int[] parseIntLine(String line) {
-        String[] toks = line.trim().split("\\s+");
-        int[] arr = new int[toks.length];
-        for (int i = 0; i < toks.length; i++)
-            arr[i] = Integer.parseInt(toks[i]);
+        String[] tokens = line.trim().split("\\s+");
+        int[] arr = new int[tokens.length];
+        for (int i = 0; i < tokens.length; i++)
+            arr[i] = Integer.parseInt(tokens[i]);
         return arr;
     }
 }
