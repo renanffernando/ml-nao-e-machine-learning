@@ -21,8 +21,7 @@ public class ChallengeSolver {
 
     static boolean bestSubSolution(ChallengeSolution sol, int LB) {
         List<Graph> comps = sol.getComponents();
-        if (comps.size() <= 1)
-            return false;
+        if (comps.size() <= 1) return false;
 
         double bestLocal = Double.NEGATIVE_INFINITY;
         Graph bestComp = null;
@@ -79,8 +78,7 @@ public class ChallengeSolver {
                     IloLinearNumExpr lhs = setModel.linearNumExpr();
                     for (int a : inst.item_aisles.get(i)) {
                         int cap = inst.u_ai.get(a).get(i);
-                        if (cap > 0)
-                            lhs.addTerm(cap, Avars[a]);
+                        if (cap > 0) lhs.addTerm(cap, Avars[a]);
                     }
                     int demand = inst.u_oi.get(o).get(i);
                     IloRange c = setModel.addGe(lhs, demand);
@@ -119,8 +117,7 @@ public class ChallengeSolver {
             // mark invalid orders (min cover == 0)
             List<Integer> invalid = new ArrayList<>();
             for (int o = 0; o < inst.O; o++)
-                if (minCovers[o] == 0)
-                    invalid.add(o);
+                if (minCovers[o] == 0) invalid.add(o);
             inst.clear_orders(invalid);
 
             System.out.printf("Preprocessing completed after %.2fs%n", getCurrentTime(stopWatch) / 1E3);
@@ -156,8 +153,7 @@ public class ChallengeSolver {
                 int sum = 0;
                 for (int val : inst.u_oi.get(o).values())
                     sum += val;
-                if (sum != 0)
-                    waveItemsExpr.addTerm(sum, Ovars[o]);
+                if (sum != 0) waveItemsExpr.addTerm(sum, Ovars[o]);
             }
 
             // Operational limits on items
@@ -169,14 +165,12 @@ public class ChallengeSolver {
                 IloLinearNumExpr dem = cplex.linearNumExpr();
                 for (int o : inst.item_orders.get(i)) {
                     int demand = inst.u_oi.get(o).getOrDefault(i, 0);
-                    if (demand > 0)
-                        dem.addTerm(demand, Ovars[o]);
+                    if (demand > 0) dem.addTerm(demand, Ovars[o]);
                 }
                 IloLinearNumExpr cap = cplex.linearNumExpr();
                 for (int a : inst.item_aisles.get(i)) {
                     int capacity = inst.u_ai.get(a).get(i);
-                    if (capacity > 0)
-                        cap.addTerm(capacity, Avars[a]);
+                    if (capacity > 0) cap.addTerm(capacity, Avars[a]);
                 }
                 cplex.addLe(dem, cap);
             }
@@ -218,8 +212,7 @@ public class ChallengeSolver {
 
             while (true) {
                 double GAP = (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
-                System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ",
-                        OPT_LB, OPT_UB, 100 * GAP, lambda);
+                System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ", OPT_LB, OPT_UB, 100 * GAP, lambda);
 
                 // Maximize wave_items - lambda * wave_aisles
                 IloLinearNumExpr obj = cplex.linearNumExpr();
@@ -235,8 +228,7 @@ public class ChallengeSolver {
                 cplex.addMaximize(obj);
 
                 boolean solved = cplex.solve();
-                if (!solved)
-                    throw new RuntimeException("No solution found!");
+                if (!solved) throw new RuntimeException("No solution found!");
 
                 if (cplex.getStatus() == IloCplex.Status.Infeasible) {
                     is_first_iteration = false;
@@ -251,8 +243,7 @@ public class ChallengeSolver {
 
                 double dinkObj = cplex.getObjValue();
                 double elapsed = (System.currentTimeMillis() - dinkStart) / 1E3;
-                System.out.printf("dinkelbach obj = %.6f; elapsed %.2fs of %.2fs;%n",
-                        dinkObj, elapsed, Math.max(0.0, totalTime - timeTolerance));
+                System.out.printf("dinkelbach obj = %.6f; elapsed %.2fs of %.2fs;%n", dinkObj, elapsed, Math.max(0.0, totalTime - timeTolerance));
 
                 // current objective = wave_items / wave_aisles (values at incumbent)
                 double waveItemsVal = cplex.getValue(waveItemsExpr);
@@ -260,18 +251,15 @@ public class ChallengeSolver {
 
                 double currentObj = (waveAislesVal > 0.0) ? (waveItemsVal / waveAislesVal) : waveItemsVal;
                 if (!is_first_iteration && removed.isEmpty() && currentObj < -TOL) {
-                    throw new IllegalStateException(
-                            "Negative Objective Function");
+                    throw new IllegalStateException("Negative Objective Function");
                 }
                 boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - 1e-6;
                 if (improved) {
                     cplex.setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 1.0 / inst.UB);
                     cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 3);
                     bestSol = new CPLEXSolution(cplex, nameToVar, waveItemsExpr, remainingGraph, false);
-                    if (!is_first_iteration
-                            && Math.abs(bestSol.wave_items - bestSol.wave_aisles * OPT_LB - dinkObj) >= 1e-3) {
-                        throw new IllegalStateException(
-                                "Invariant violated: wave_items != wave_aisles * OPT_LB + dinkObj");
+                    if (!is_first_iteration && Math.abs(bestSol.wave_items - bestSol.wave_aisles * OPT_LB - dinkObj) >= 1e-3) {
+                        throw new IllegalStateException("Invariant violated: wave_items != wave_aisles * OPT_LB + dinkObj");
                     }
                     System.out.printf("- Found a new best solution with obj = %.3f;%n", bestSol.obj);
                     if (bestSubSolution(bestSol, inst.LB)) {
@@ -284,8 +272,7 @@ public class ChallengeSolver {
                         }
                         double[] values = new double[vars.size()];
                         Arrays.fill(values, 1.0);
-                        cplex.addMIPStart(vars.toArray(new IloNumVar[0]), values,
-                                IloCplex.MIPStartEffort.Repair, "MyStart");
+                        cplex.addMIPStart(vars.toArray(new IloNumVar[0]), values, IloCplex.MIPStartEffort.Repair, "MyStart");
                     }
                 }
                 is_first_iteration = false;
@@ -293,8 +280,7 @@ public class ChallengeSolver {
                 // remove objective to re-set the next iteration
                 cplex.delete(cplex.getObjective());
 
-                if (timeLimit <= timeTolerance)
-                    break;
+                if (timeLimit <= timeTolerance) break;
 
                 // Update search interval
                 OPT_LB = Math.max(OPT_LB, bestSol.obj);
@@ -305,23 +291,21 @@ public class ChallengeSolver {
                     System.out.println("- Reached a local optimum!");
                     if (!removed.isEmpty()) {
                         // restore
-                        var count = removed.size();
-                        for (var pair : removed) {
+                        var count = 0;
+                        var firstPair = removed.peek();
+                        var limit = firstPair != null ? firstPair.first : Integer.MAX_VALUE;
+                        while (!removed.isEmpty() && removed.peek().first <= limit) {
+                            count++;
+                            var pair = removed.poll();
                             IloNumVar v = nameToVar.get(pair.second);
-                            if (v != null)
-                                v.setUB(1.0);
+                            if (v != null) v.setUB(1.0);
                         }
-                        System.out.printf("- %d fixed variables were restored;%n", count);
-                        System.out.println("- " + removed.size() + " variables out of "
-                                + nameToVar.size() + " are fixed;");
-                        removed.clear();
-                        if (removed.isEmpty())
-                            remainingGraph = inst.underlying_graph;
+                        System.out.printf("- %d fixed variables from distance <= %d were restored;%n", count, limit);
+                        System.out.println("- " + removed.size() + " variables out of " + nameToVar.size() + " are fixed;");
+                        if (removed.isEmpty()) remainingGraph = inst.underlying_graph;
                     } else {
-                        if (cplex.getStatus() == IloCplex.Status.Optimal)
-                            break;
-                        throw new IllegalStateException(
-                                "Solution should be optimal");
+                        if (cplex.getStatus() == IloCplex.Status.Optimal) break;
+                        throw new IllegalStateException("Solution should be optimal");
                     }
                 } else if (nameToVar.size() > 2000) {
                     Set<String> solution_nodes = new HashSet<>();
@@ -331,18 +315,14 @@ public class ChallengeSolver {
                     Set<String> to_remove = new HashSet<>();
                     Set<String> to_keep = new HashSet<>();
                     for (var entry : mapDistance.entrySet()) {
-                        if (entry.getValue() <= 1)
-                            to_keep.add(entry.getKey());
+                        if (entry.getValue() <= 1) to_keep.add(entry.getKey());
                         else {
-                            var oldPair = removed.stream()
-                                    .filter(pair -> pair.second.equals(entry.getKey()))
-                                    .findFirst();
+                            var oldPair = removed.stream().filter(pair -> pair.second.equals(entry.getKey())).findFirst();
                             var data = oldPair.orElse(null);
                             if (data != null) {
                                 removed.remove(data);
                                 data.first = entry.getValue();
-                            } else
-                                data = new Pair<>(entry.getValue(), entry.getKey());
+                            } else data = new Pair<>(entry.getValue(), entry.getKey());
                             to_remove.add(entry.getKey());
                             removed.add(data);
                         }
@@ -351,16 +331,13 @@ public class ChallengeSolver {
                         nameToVar.get(s).setUB(0.0);
                     remainingGraph.subgraph(to_keep);
                     System.out.println("- " + to_remove.size() + " variables were fixed;");
-                    System.out.println("- " + removed.size() + " variables out of "
-                            + nameToVar.size() + " are fixed;");
+                    System.out.println("- " + removed.size() + " variables out of " + nameToVar.size() + " are fixed;");
                 }
             }
 
-            System.out.printf("...Dinkelbach search stopped after %.2fs.%n",
-                    (System.currentTimeMillis() - dinkStart) / 1E3);
+            System.out.printf("...Dinkelbach search stopped after %.2fs.%n", (System.currentTimeMillis() - dinkStart) / 1E3);
 
-            if (bestSol.empty)
-                throw new RuntimeException("No feasible solution found!");
+            if (bestSol.empty) throw new RuntimeException("No feasible solution found!");
 
             if (inst.input_file != null) {
                 System.out.printf("%nBest solution found for instance %s:%n", inst.input_file);
