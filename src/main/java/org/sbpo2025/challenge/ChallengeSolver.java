@@ -114,6 +114,8 @@ public class ChallengeSolver {
 
     public Set<String> getLPSolution() {
         try {
+
+            System.out.println("\nRunning Linear Relaxation...");
             IloCplex cplex = new IloCplex();
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output_lp.txt")));
             cplex.setParam(IloCplex.Param.Threads, 8);
@@ -191,6 +193,8 @@ public class ChallengeSolver {
                     vars.add(key);
                 }
             }
+
+            System.out.println("LP-relaxation removed: " + (nameToVar.size() - vars.size()) + " variables");
             return vars;
         } catch (IloException e) {
             System.out.println("Error:\n" + e.getMessage());
@@ -219,7 +223,7 @@ public class ChallengeSolver {
             // cplex.setOut(null); // silence; set to System.out to debug
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt"))); // agora o log vai para o arquivo
             cplex.setParam(IloCplex.Param.Threads, 8);
-            cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Heuristic);
+            cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.HiddenFeas);
 
             // Variables with names and maps for quick access by name
             Map<String, IloNumVar> nameToVar = new HashMap<>();
@@ -332,8 +336,7 @@ public class ChallengeSolver {
                 if (!solved && is_first_iteration) {
                     is_first_iteration = false;
                     while (!removed.isEmpty()) {
-                        var pair = removed.poll();
-                        IloNumVar v = nameToVar.get(pair.second);
+                        IloNumVar v = nameToVar.get(removed.poll().second);
                         if (v != null)
                             v.setUB(1.0);
                     }
@@ -387,7 +390,15 @@ public class ChallengeSolver {
                                 "MyStart");
                     }
                 }
-                is_first_iteration = false;
+                if (is_first_iteration) {
+                    is_first_iteration = false;
+                    while (!removed.isEmpty()) {
+                        IloNumVar v = nameToVar.get(removed.poll().second);
+                        if (v != null)
+                            v.setUB(1.0);
+                    }
+                    removed.clear();
+                }
 
                 // remove objective to re-set the next iteration
                 cplex.delete(cplex.getObjective());
@@ -414,6 +425,15 @@ public class ChallengeSolver {
                             if (v != null)
                                 v.setUB(1.0);
                         }
+                        if (!removed.isEmpty() && 5 * removed.size() < count) {
+                            limit = 1;
+                            while (!removed.isEmpty()) {
+                                count++;
+                                IloNumVar v = nameToVar.get(removed.poll().second);
+                                if (v != null)
+                                    v.setUB(1.0);
+                            }
+                        }
                         System.out.printf("- %d fixed variables from distance <= %d were restored;%n", count, limit);
                         System.out.println(
                                 "- " + removed.size() + " variables out of " + nameToVar.size() + " are fixed;");
@@ -429,28 +449,35 @@ public class ChallengeSolver {
                     solution_nodes.addAll(bestSol.aisle_nodes);
                     solution_nodes.addAll(bestSol.order_nodes);
                     Map<String, Integer> mapDistance = remainingGraph.compute_distance_from_set(solution_nodes);
-                    Set<String> to_remove = new HashSet<>();
+                    Set<String> candidate_to_remove = new HashSet<>();
                     Set<String> to_keep = new HashSet<>();
+
                     for (var entry : mapDistance.entrySet()) {
                         if (entry.getValue() <= 1)
                             to_keep.add(entry.getKey());
                         else {
-                            var oldPair = removed.stream().filter(pair -> pair.second.equals(entry.getKey()))
-                                    .findFirst();
-                            var data = oldPair.orElse(null);
-                            if (data != null) {
-                                removed.remove(data);
-                                data.first = entry.getValue();
-                            } else
-                                data = new Pair<>(entry.getValue(), entry.getKey());
-                            to_remove.add(entry.getKey());
-                            removed.add(data);
+                            candidate_to_remove.add(entry.getKey());
                         }
                     }
-                    for (String s : to_remove)
+                    Map<String, Integer> already_removed = new HashMap<>();
+                    for (Pair<Integer, String> pair : removed) {
+                        already_removed.put(pair.second, pair.first);
+                    }
+                    removed.clear();
+                    int removed_cnt = 0;
+                    for (String s : candidate_to_remove) {
                         nameToVar.get(s).setUB(0.0);
+                        if (!already_removed.containsKey(s)) {
+                            removed_cnt++;
+                            removed.add(new Pair<>(mapDistance.get(s), s));
+                        } else {
+                            // Probably the already_removed values is always the minimum, because the vertex is supposed to be removed.
+                            removed.add(new Pair<>(Math.min(mapDistance.get(s), already_removed.get(s)), s));
+                        }
+                    }
+
                     remainingGraph.subgraph(to_keep);
-                    System.out.println("- " + to_remove.size() + " variables were fixed;");
+                    System.out.println("- " + removed_cnt + " variables were fixed;");
                     System.out.println("- " + removed.size() + " variables out of " + nameToVar.size() + " are fixed;");
                 }
             }
