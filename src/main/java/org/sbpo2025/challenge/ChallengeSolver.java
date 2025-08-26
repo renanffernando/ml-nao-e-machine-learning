@@ -4,13 +4,7 @@ import org.apache.commons.lang3.time.StopWatch;
 
 import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -136,7 +130,7 @@ public class ChallengeSolver {
             // cplex.setOut(null); // silence; set to System.out to debug
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt"))); // agora o log vai para o arquivo
             cplex.setParam(IloCplex.Param.Threads, 8);
-            cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Heuristic); // CPX_MIPEMPHASIS_FEASIBILITY
+            cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Heuristic);
 
             // Variables with names and maps for quick access by name
             Map<String, IloNumVar> nameToVar = new HashMap<>();
@@ -195,9 +189,8 @@ public class ChallengeSolver {
                 nameToVar.remove(node);
             }
 
-            Set<String> removed = new HashSet<>();
-
             // --------------- Dinkelbach loop ---------------
+            var removed = new PriorityQueue<Pair<Integer, String>>();
             CPLEXSolution bestSol = new CPLEXSolution();
             Graph remainingGraph = inst.underlying_graph; // search space
 
@@ -206,7 +199,7 @@ public class ChallengeSolver {
             double OPT_UB = inst.trivial_ub();
             double lambda = OPT_LB;
 
-            double elapsedTime = getCurrentTime(stopWatch) / 1000.0;
+            double elapsedTime = getCurrentTime(stopWatch) / 1E3;
             double totalTime = 60 * 10 - elapsedTime; // 10 minutes minus preprocessing
             double timeTolerance = 20.0;
             double timeLimit = totalTime;
@@ -251,13 +244,13 @@ public class ChallengeSolver {
                 }
 
                 // Update time limits
-                double iterDur = (System.currentTimeMillis() - iterStart) / 1000.0;
+                double iterDur = (System.currentTimeMillis() - iterStart) / 1E3;
                 iterStart = System.currentTimeMillis();
                 timeLimit = Math.max(0, timeLimit - iterDur);
                 cplex.setParam(IloCplex.DoubleParam.TimeLimit, Math.max(0.0, timeLimit - timeTolerance));
 
                 double dinkObj = cplex.getObjValue();
-                double elapsed = (System.currentTimeMillis() - dinkStart) / 1000.0;
+                double elapsed = (System.currentTimeMillis() - dinkStart) / 1E3;
                 System.out.printf("dinkelbach obj = %.6f; elapsed %.2fs of %.2fs;%n",
                         dinkObj, elapsed, Math.max(0.0, totalTime - timeTolerance));
 
@@ -266,8 +259,7 @@ public class ChallengeSolver {
                 double waveAislesVal = cplex.getValue(waveAislesExprObj) / -lambda;
 
                 double currentObj = (waveAislesVal > 0.0) ? (waveItemsVal / waveAislesVal) : waveItemsVal;
-                if (!is_first_iteration
-                        && removed.isEmpty() && currentObj < -TOL) {
+                if (!is_first_iteration && removed.isEmpty() && currentObj < -TOL) {
                     throw new IllegalStateException(
                             "Negative Objective Function");
                 }
@@ -313,15 +305,18 @@ public class ChallengeSolver {
                     System.out.println("- Reached a local optimum!");
                     if (!removed.isEmpty()) {
                         // restore
-                        for (String nm : removed) {
-                            IloNumVar v = nameToVar.get(nm);
+                        var count = removed.size();
+                        for (var pair : removed) {
+                            IloNumVar v = nameToVar.get(pair.second);
                             if (v != null)
                                 v.setUB(1.0);
                         }
-                        System.out.printf("- %d fixed variables were restored;%n", removed.size());
+                        System.out.printf("- %d fixed variables were restored;%n", count);
+                        System.out.println("- " + removed.size() + " variables out of "
+                                + nameToVar.size() + " are fixed;");
                         removed.clear();
-                        remainingGraph = inst.underlying_graph;
-                        continue;
+                        if (removed.isEmpty())
+                            remainingGraph = inst.underlying_graph;
                     } else {
                         if (cplex.getStatus() == IloCplex.Status.Optimal)
                             break;
@@ -329,31 +324,40 @@ public class ChallengeSolver {
                                 "Solution should be optimal");
                     }
                 } else if (nameToVar.size() > 2000) {
-                    Set<String> solution_nodes = new HashSet<String>();
+                    Set<String> solution_nodes = new HashSet<>();
                     solution_nodes.addAll(bestSol.aisle_nodes);
                     solution_nodes.addAll(bestSol.order_nodes);
                     Map<String, Integer> mapDistance = remainingGraph.compute_distance_from_set(solution_nodes);
                     Set<String> to_remove = new HashSet<>();
                     Set<String> to_keep = new HashSet<>();
-                    for (Map.Entry<String, Integer> entry : mapDistance.entrySet()) {
+                    for (var entry : mapDistance.entrySet()) {
                         if (entry.getValue() <= 1)
                             to_keep.add(entry.getKey());
-                        else if (!removed.contains(entry.getKey()))
+                        else {
+                            var oldPair = removed.stream()
+                                    .filter(pair -> pair.second.equals(entry.getKey()))
+                                    .findFirst();
+                            var data = oldPair.orElse(null);
+                            if (data != null) {
+                                removed.remove(data);
+                                data.first = entry.getValue();
+                            } else
+                                data = new Pair<>(entry.getValue(), entry.getKey());
                             to_remove.add(entry.getKey());
+                            removed.add(data);
+                        }
                     }
                     for (String s : to_remove)
                         nameToVar.get(s).setUB(0.0);
-                    removed.addAll(to_remove);
                     remainingGraph.subgraph(to_keep);
                     System.out.println("- " + to_remove.size() + " variables were fixed;");
                     System.out.println("- " + removed.size() + " variables out of "
                             + nameToVar.size() + " are fixed;");
-
                 }
             }
 
             System.out.printf("...Dinkelbach search stopped after %.2fs.%n",
-                    (System.currentTimeMillis() - dinkStart) / 1000.0);
+                    (System.currentTimeMillis() - dinkStart) / 1E3);
 
             if (bestSol.empty)
                 throw new RuntimeException("No feasible solution found!");
@@ -367,7 +371,7 @@ public class ChallengeSolver {
             System.out.printf(" - %d/%d orders", bestSol.orders.size(), inst.O);
             System.out.printf(" - %d/%d aisles", bestSol.aisles.size(), inst.A);
             System.out.printf(" - %d items;%n", bestSol.wave_items);
-            System.out.printf(" - total time: %.2fs;%n", (getCurrentTime(stopWatch)) / 1000.0);
+            System.out.printf(" - total time: %.2fs;%n", (getCurrentTime(stopWatch)) / 1E3);
             System.out.printf(" - obj: %.2f;%n", bestSol.obj);
 
             cplex.end();
@@ -385,9 +389,8 @@ public class ChallengeSolver {
      * Get the remaining time in seconds
      */
     protected long getRemainingTime(StopWatch stopWatch) {
-        return Math.max(
-                TimeUnit.SECONDS.convert(MAX_RUNTIME - stopWatch.getTime(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS),
-                0);
+        var delta = MAX_RUNTIME - stopWatch.getTime(TimeUnit.MILLISECONDS);
+        return Math.max(TimeUnit.SECONDS.convert(delta, TimeUnit.MILLISECONDS), 0);
     }
 
     protected long getCurrentTime(StopWatch stopWatch, TimeUnit unit) {
