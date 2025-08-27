@@ -307,11 +307,14 @@ public class ChallengeSolver {
             long dinkStart = System.currentTimeMillis();
             long iterStart = System.currentTimeMillis();
             boolean is_first_iteration = true;
-            Set<String> varInLP = getLPSolution();
-            for (String var : nameToVar.keySet()) {
-                if (!varInLP.contains(var)) {
-                    removed.add(new Pair<>(Integer.MAX_VALUE, var));
-                    nameToVar.get(var).setUB(0.0);
+
+            if (is_first_iteration) {
+                Set<String> varInLP = getLPSolution();
+                for (String var : nameToVar.keySet()) {
+                    if (!varInLP.contains(var)) {
+                        removed.add(new Pair<>(Integer.MAX_VALUE, var));
+                        nameToVar.get(var).setUB(0.0);
+                    }
                 }
             }
 
@@ -340,7 +343,9 @@ public class ChallengeSolver {
                         if (v != null)
                             v.setUB(1.0);
                     }
-                    removed.clear();
+                    cplex.remove(cplex.getObjective());
+
+                    System.out.printf("\nSelected variables to warm start are not feasible\n");
                     continue;
                 }
                 if (!solved)
@@ -397,7 +402,6 @@ public class ChallengeSolver {
                         if (v != null)
                             v.setUB(1.0);
                     }
-                    removed.clear();
                 }
 
                 // remove objective to re-set the next iteration
@@ -418,27 +422,25 @@ public class ChallengeSolver {
                         var count = 0;
                         var firstPair = removed.peek();
                         var limit = firstPair != null ? firstPair.first : Integer.MAX_VALUE;
-                        while (!removed.isEmpty() && removed.peek().first <= limit) {
-                            count++;
-                            var pair = removed.poll();
-                            IloNumVar v = nameToVar.get(pair.second);
-                            if (v != null)
-                                v.setUB(1.0);
-                        }
-                        if (!removed.isEmpty() && 5 * removed.size() < count) {
-                            limit = 1;
-                            while (!removed.isEmpty()) {
+                        while (!removed.isEmpty()) {
+                            while (!removed.isEmpty() && removed.peek().first <= limit) {
                                 count++;
                                 IloNumVar v = nameToVar.get(removed.poll().second);
                                 if (v != null)
                                     v.setUB(1.0);
                             }
+                            if (removed.isEmpty() || 5 * removed.size() > count)
+                                break;
+                            limit = removed.peek().first;
                         }
                         System.out.printf("- %d fixed variables from distance <= %d were restored;%n", count, limit);
                         System.out.println(
                                 "- " + removed.size() + " variables out of " + nameToVar.size() + " are fixed;");
-                        if (removed.isEmpty())
-                            remainingGraph = inst.underlying_graph;
+
+                        Set<String> to_keep = inst.underlying_graph.get_all_nodes();
+                        for (Pair<Integer, String> pair : removed)
+                            to_keep.remove(pair.second);
+                        remainingGraph = inst.underlying_graph.subgraph(to_keep);
                     } else {
                         if (cplex.getStatus() == IloCplex.Status.Optimal)
                             break;
@@ -449,35 +451,29 @@ public class ChallengeSolver {
                     solution_nodes.addAll(bestSol.aisle_nodes);
                     solution_nodes.addAll(bestSol.order_nodes);
                     Map<String, Integer> mapDistance = remainingGraph.compute_distance_from_set(solution_nodes);
-                    Set<String> candidate_to_remove = new HashSet<>();
+                    Set<String> to_remove = new HashSet<>();
                     Set<String> to_keep = new HashSet<>();
 
                     for (var entry : mapDistance.entrySet()) {
                         if (entry.getValue() <= 1)
                             to_keep.add(entry.getKey());
-                        else {
-                            candidate_to_remove.add(entry.getKey());
-                        }
+                        else
+                            to_remove.add(entry.getKey());
                     }
-                    Map<String, Integer> already_removed = new HashMap<>();
-                    for (Pair<Integer, String> pair : removed) {
-                        already_removed.put(pair.second, pair.first);
-                    }
-                    removed.clear();
-                    int removed_cnt = 0;
-                    for (String s : candidate_to_remove) {
+                    Set<String> already_removed = new HashSet<>();
+                    for (Pair<Integer, String> pair : removed)
+                        already_removed.add(pair.second);
+
+                    for (String s : to_remove) {
+                        if (already_removed.contains(s))
+                            throw new IllegalStateException(
+                                    "The vertex " + s + " was removed but it is on the remaining graph");
                         nameToVar.get(s).setUB(0.0);
-                        if (!already_removed.containsKey(s)) {
-                            removed_cnt++;
-                            removed.add(new Pair<>(mapDistance.get(s), s));
-                        } else {
-                            // Probably the already_removed values is always the minimum, because the vertex is supposed to be removed.
-                            removed.add(new Pair<>(Math.min(mapDistance.get(s), already_removed.get(s)), s));
-                        }
+                        removed.add(new Pair<>(mapDistance.get(s), s));
                     }
 
-                    remainingGraph.subgraph(to_keep);
-                    System.out.println("- " + removed_cnt + " variables were fixed;");
+                    remainingGraph = remainingGraph.subgraph(to_keep);
+                    System.out.println("- " + to_remove.size() + " variables were fixed;");
                     System.out.println("- " + removed.size() + " variables out of " + nameToVar.size() + " are fixed;");
                 }
             }

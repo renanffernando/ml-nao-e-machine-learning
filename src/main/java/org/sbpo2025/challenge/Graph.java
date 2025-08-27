@@ -26,6 +26,12 @@ public class Graph {
         nodeWeight.put(n, w);
     }
 
+    Set<String> get_all_nodes() {
+        Set<String> nodes = new HashSet<>();
+        nodes.addAll(adj.keySet());
+        return nodes;
+    }
+
     int getNodeWeight(String n) {
         return nodeWeight.getOrDefault(n, 0);
     }
@@ -46,7 +52,8 @@ public class Graph {
     }
 
     void removeNode(String n) {
-        if (!adj.containsKey(n)) return;
+        if (!adj.containsKey(n))
+            return;
         for (String nb : adj.get(n)) {
             adj.get(nb).remove(n);
         }
@@ -57,7 +64,8 @@ public class Graph {
     Set<String> isolates() {
         Set<String> res = new HashSet<>();
         for (var e : adj.entrySet()) {
-            if (e.getValue().isEmpty()) res.add(e.getKey());
+            if (e.getValue().isEmpty())
+                res.add(e.getKey());
         }
         return res;
     }
@@ -67,12 +75,14 @@ public class Graph {
         for (String n : keep) {
             if (adj.containsKey(n)) {
                 g.addNode(n);
-                if (nodeWeight.containsKey(n)) g.setNodeWeight(n, nodeWeight.get(n));
+                if (nodeWeight.containsKey(n))
+                    g.setNodeWeight(n, nodeWeight.get(n));
             }
         }
         for (String u : keep) {
             for (String v : neighbors(u)) {
-                if (keep.contains(v)) g.addEdge(u, v);
+                if (keep.contains(v))
+                    g.addEdge(u, v);
             }
         }
         g.graphWeight = this.graphWeight;
@@ -83,7 +93,8 @@ public class Graph {
         List<Set<String>> comps = new ArrayList<>();
         Set<String> vis = new HashSet<>();
         for (String s : nodes()) {
-            if (vis.contains(s)) continue;
+            if (vis.contains(s))
+                continue;
             Set<String> comp = new HashSet<>();
             Deque<String> dq = new ArrayDeque<>();
             dq.add(s);
