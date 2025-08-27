@@ -121,10 +121,10 @@ public class Graph {
         // Multi-source BFS
         while (!queue.isEmpty()) {
             String u = queue.poll();
-            int distU = distMap.get(u);
+            int distU = distMap.getOrDefault(u, Integer.MAX_VALUE);
 
-            for (String v : adj.getOrDefault(u, new HashSet<String>())) {
-                if (distMap.get(v) == Integer.MAX_VALUE) {
+            for (String v : adj.getOrDefault(u, new HashSet<>())) {
+                if (distMap.getOrDefault(v, Integer.MAX_VALUE) == Integer.MAX_VALUE) {
                     distMap.put(v, distU + 1);
                     queue.add(v);
                 }
