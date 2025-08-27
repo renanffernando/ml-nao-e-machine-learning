@@ -128,7 +128,7 @@ public class Instance {
         return comps;
     }
 
-    void clear_orders(List<Integer> invalidOrders) {
+    int clear_orders(List<Integer> invalidOrders) {
         for (int o : invalidOrders)
             invalid_order_nodes.add(Helpers.oLabel(o));
         for (String n : invalid_order_nodes)
@@ -138,6 +138,7 @@ public class Instance {
             underlying_graph.removeNode(n);
         for (int o : invalidOrders)
             u_oi.get(o).clear();
+        return trivial_nodes.size();
     }
 
     double trivial_ub() {

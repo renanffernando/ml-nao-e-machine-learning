@@ -183,3 +183,4 @@ cython_debug/
 # Solver output
 *.out
 cplex_output.txt
+cplex_output_lp.txt
