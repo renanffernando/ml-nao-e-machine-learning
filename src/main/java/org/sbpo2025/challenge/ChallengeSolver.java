@@ -13,18 +13,20 @@ import ilog.concert.*;
 import ilog.cplex.*;
 
 public class ChallengeSolver {
-    private final long MAX_RUNTIME = 600000; // milliseconds; 10 minutes
-    Instance inst;
 
-    private record Model(IloCplex cplex, IloNumVar[] Avars, IloNumVar[] Ovars, Map<String, IloNumVar> nameToVar,
-                         IloLinearNumExpr waveItemsExpr, ArrayList<String> removed) {
+    private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
+                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
+
+    private static Model model;
+    private final long MAX_RUNTIME = 600000; // milliseconds; 10 minutes
+    private Instance inst;
 
     public ChallengeSolver(Instance instance) {
         this.inst = instance;
     }
 
-    static boolean bestSubSolution(ChallengeSolution sol, int LB) {
+    public static boolean bestSubSolution(ChallengeSolution sol, int LB) {
         List<Graph> comps = sol.getComponents();
         if (comps.size() <= 1)
             return false;
@@ -34,7 +36,7 @@ public class ChallengeSolver {
         int bestCompSize = 0;
 
         for (Graph comp : comps) {
-            Set<String> compNodes = comp.nodes();
+            Set<String> compNodes = comp.getNodes();
             Set<String> compOrders = compNodes.stream().filter(n -> n.startsWith("o[")).collect(Collectors.toSet());
             Set<String> compAisles = compNodes.stream().filter(n -> n.startsWith("a[")).collect(Collectors.toSet());
 
@@ -55,7 +57,7 @@ public class ChallengeSolver {
 
         if (bestComp != null && bestLocal > sol.obj) {
             bestComp.graphWeight = bestCompSize;
-            System.out.printf("- Found a better sub-solution with obj = %.3f;\n", bestLocal);
+            System.out.printf("\t- Found a better sub-solution with obj = %.3f;\n", bestLocal);
             sol.restrict_solution(bestComp);
             return true;
         }
@@ -63,7 +65,7 @@ public class ChallengeSolver {
     }
 
     // -------------------- Preprocessing: min aisles cover per order ----------
-    static int[] minOrdersCover(Instance inst) throws IloException {
+    public static int[] minOrdersCover(Instance inst) throws IloException {
         int[] result = new int[inst.O];
         try (IloCplex setModel = new IloCplex()) {
             setModel.setParam(IloCplex.Param.Threads, 8);
@@ -118,7 +120,7 @@ public class ChallengeSolver {
     }
 
     // -------------------- Preprocessing: LP-relaxation ----------------------
-    public int getLPSolution(Set<String> vars) {
+    private int getLPSolution(Set<String> vars) {
         try {
             IloCplex cplex = new IloCplex();
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output_lp.txt")));
@@ -223,7 +225,21 @@ public class ChallengeSolver {
         System.out.println("\t- LP-relaxation removed " + removedByLP + " variables;");
     }
 
-    private Model buildModel(HashSet<String> varInLP) throws IloException, FileNotFoundException {
+    private static int setUB(Set<String> varNames, double UB, int limit) throws IloException {
+        int count = 0;
+        for (String var : varNames) {
+            IloNumVar v = model.nameToVar().get(var);
+            if (v != null) v.setUB(UB);
+            if (++count >= limit) break;
+        }
+        return count;
+    }
+
+    private static int setUB(Set<String> varNames, double UB) throws IloException {
+        return setUB(varNames, UB, varNames.size());
+    }
+
+    private void buildModel(HashSet<String> varInLP) throws IloException, FileNotFoundException {
         System.out.println("\nBuilding Dinkelbach model...");
         IloCplex cplex = new IloCplex();
         cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt")));
@@ -240,10 +256,12 @@ public class ChallengeSolver {
         }
         // Aisles
         IloNumVar[] Avars = cplex.boolVarArray(inst.A);
+        IloLinearNumExpr waveAislesExpr = cplex.linearNumExpr();
         for (int a = 0; a < inst.A; a++) {
             String nm = Helpers.aLabel(a);
             Avars[a].setName(nm);
             nameToVar.put(nm, Avars[a]);
+            waveAislesExpr.addTerm(1.0, Avars[a]);
         }
 
         // wave_items expression
@@ -286,15 +304,12 @@ public class ChallengeSolver {
         }
 
         // Fix variables removed by the LP relaxation (if any):
-        var removed = new ArrayList<String>();
-        for (String var : nameToVar.keySet()) {
-            if (!varInLP.contains(var)) {
-                removed.add(var);
-                nameToVar.get(var).setUB(0.0);
-            }
-        }
+        var removed = new HashSet<>(nameToVar.keySet());
+        removed.removeAll(varInLP);
 
-        return new Model(cplex, Ovars, Avars, nameToVar, waveItemsExpr, removed);
+        // Create the model record:
+        model = new Model(cplex, Ovars, Avars, nameToVar, waveItemsExpr, waveAislesExpr, removed);
+        setUB(removed, 0.0);
     }
 
     public ChallengeSolution solve(StopWatch stopWatch) {
@@ -307,7 +322,7 @@ public class ChallengeSolver {
 
             // ---- Build Dinkelbach model
             start = getCurrentTime(stopWatch);
-            Model model = buildModel(varInLP);
+            buildModel(varInLP);
             System.out.printf("- Model build completed after %.2fs.\n", (getCurrentTime(stopWatch) - start) / 1E3);
 
             // --------------- Dinkelbach loop ---------------
@@ -321,7 +336,7 @@ public class ChallengeSolver {
 
             double elapsedTime = getCurrentTime(stopWatch) / 1E3;
             double totalTime = 60 * 10 - elapsedTime; // 10 minutes minus preprocessing
-            double timeTolerance = 10.0;
+            double timeTolerance = 5.0;
             double timeLimit = totalTime;
 
             model.cplex().setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
@@ -336,66 +351,66 @@ public class ChallengeSolver {
             boolean is_first_iteration = true;
 
             while (true) {
-                double GAP = (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
-                System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ", OPT_LB, OPT_UB, 100 * GAP,
-                        lambda);
+                double GAP = 100 * (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
+                System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ", OPT_LB, OPT_UB, GAP, lambda);
 
-                // Maximize wave_items - lambda * wave_aisles
+                // Create the objective function (wave_items - lambda * wave_aisles) object:
                 IloLinearNumExpr obj = model.cplex().linearNumExpr();
-                //if (!is_first_iteration) {
-                obj.add(model.waveItemsExpr());
-                //}
-                // wave_aisles expression
+                if (!is_first_iteration) {
+                    obj.add(model.waveItemsExpr());
+                }
                 IloLinearNumExpr waveAislesExprObj = model.cplex().linearNumExpr();
-                for (int a = 0; a < inst.A; a++)
-                    waveAislesExprObj.addTerm(-lambda, model.Avars()[a]);
+                for (var var : model.Avars())
+                    waveAislesExprObj.addTerm(-lambda, var);
                 obj.add(waveAislesExprObj);
                 model.cplex().addMaximize(obj);
 
+                // Solve the current model:
                 boolean solved = model.cplex().solve();
+
+                // Validate the LP relaxation heuristic:
                 if (!solved && is_first_iteration) {
                     is_first_iteration = false;
-                    for (String var : model.removed()) {
-                        IloNumVar v = model.nameToVar().get(var);
-                        if (v != null)
-                            v.setUB(1.0);
-                    }
+                    setUB(model.removed(), 1.0);
                     model.removed().clear();
+                    model.cplex.remove(model.cplex.getObjective());
+                    System.out.println("\n\t- Warm start variables selected by LP relaxation are not feasible;");
                     continue;
                 }
-                if (!solved)
-                    throw new RuntimeException("No solution found!");
 
-                // Update time limits
+                if (!solved)
+                    throw new RuntimeException("No Dinkelbach solution found!");
+
+                // Update the time limits:
                 double iterDur = (System.currentTimeMillis() - iterStart) / 1E3;
                 iterStart = System.currentTimeMillis();
                 timeLimit = Math.max(0, timeLimit - iterDur);
                 model.cplex().setParam(IloCplex.DoubleParam.TimeLimit, Math.max(0.0, timeLimit - timeTolerance));
 
+                // Get the Dinkelbach objective value:
                 double dinkObj = model.cplex().getObjValue();
                 double elapsed = (System.currentTimeMillis() - dinkStart) / 1E3;
-                System.out.printf("dinkelbach obj = %.6f; elapsed %.2fs of %.2fs;\n", dinkObj, elapsed,
-                        Math.max(0.0, totalTime - timeTolerance));
+                double total = Math.max(0.0, totalTime - timeTolerance);
+                System.out.printf("dinkelbach obj = %.6f; elapsed %.2fs of %.2fs;\n", dinkObj, elapsed, total);
 
-                // current objective = wave_items / wave_aisles (values at incumbent)
-                double waveItemsVal = model.cplex().getValue(model.waveItemsExpr());
-                double waveAislesVal = model.cplex().getValue(waveAislesExprObj) / -lambda;
-
-                double currentObj = waveItemsVal / Math.max(waveAislesVal, 1);
+                // Compute the current incumbent's objective (wave_items / wave_aisles):
+                int waveItemsVal = (int) Math.round(model.cplex().getValue(model.waveItemsExpr()));
+                int waveAislesVal = (int) Math.round(model.cplex().getValue(model.waveAislesExpr()));
+                double currentObj = (double) waveItemsVal / Math.max(waveAislesVal, 1);
                 if (!is_first_iteration && model.removed().isEmpty() && currentObj < -TOL) {
-                    throw new IllegalStateException("Negative Objective Function");
+                    throw new IllegalStateException("Negative Objective Function!");
                 }
+
                 boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - TOL;
                 if (improved) {
                     model.cplex().setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 1.0 / inst.UB);
                     model.cplex().setParam(IloCplex.Param.MIP.Limits.Solutions, 3);
-                    bestSol = new CPLEXSolution(model.cplex(), model.nameToVar(), model.waveItemsExpr(), remainingGraph, false);
+                    bestSol = new CPLEXSolution(model.cplex(), model.nameToVar(), waveItemsVal, remainingGraph);
                     if (!is_first_iteration
-                            && Math.abs(bestSol.wave_items - bestSol.wave_aisles * OPT_LB - dinkObj) >= 1e-3) {
-                        throw new IllegalStateException(
-                                "Invariant violated: wave_items != wave_aisles * OPT_LB + dinkObj");
+                            && Math.abs(bestSol.wave_items - bestSol.wave_aisles * lambda - dinkObj) >= TOL) {
+                        throw new IllegalStateException("Invariant violated: wave_items - wave_aisles * lambda != dinkObj");
                     }
-                    System.out.printf("- Found a new best solution with obj = %.3f;\n", bestSol.obj);
+                    System.out.printf("\t- Found a new best solution with obj = %.3f;\n", bestSol.obj);
                     if (bestSubSolution(bestSol, inst.LB)) {
                         ArrayList<IloNumVar> vars = new ArrayList<>();
                         for (Integer aisle : bestSol.get_aisles()) {
@@ -406,21 +421,19 @@ public class ChallengeSolver {
                         }
                         double[] values = new double[vars.size()];
                         Arrays.fill(values, 1.0);
-                        model.cplex().addMIPStart(vars.toArray(new IloNumVar[0]), values, IloCplex.MIPStartEffort.Repair,
-                                "MyStart");
+                        var varArray = vars.toArray(new IloNumVar[0]);
+                        model.cplex().addMIPStart(varArray, values, IloCplex.MIPStartEffort.Repair, "MyStart");
                     }
                 }
+
+                // First iteration reset:
                 if (is_first_iteration) {
                     is_first_iteration = false;
-                    for (String var : model.removed()) {
-                        IloNumVar v = model.nameToVar().get(var);
-                        if (v != null)
-                            v.setUB(1.0);
-                    }
+                    setUB(model.removed(), 1.0);
                     model.removed().clear();
                 }
 
-                // remove objective to re-set the next iteration
+                // Remove objective to re-set the next iteration:
                 model.cplex().delete(model.cplex().getObjective());
 
                 if (timeLimit <= timeTolerance)
@@ -432,38 +445,30 @@ public class ChallengeSolver {
 
                 // Local optimum / pruning opportunities
                 if (!improved) {
-                    System.out.println("- Reached a local optimum!");
+                    System.out.println("\t- Reached a local optimum!");
                     if (!model.removed().isEmpty()) {
                         // restore
                         Set<String> solution_nodes = new HashSet<>();
                         solution_nodes.addAll(bestSol.aisle_nodes);
                         solution_nodes.addAll(bestSol.order_nodes);
                         var mapDistance = inst.underlying_graph.compute_distance_from_set(solution_nodes);
-                        int total = 0;
+                        int resetTotal = 0;
                         int max = Math.min(5000, (int) Math.ceil(0.6 * model.removed().size()));
                         do {
-                            var minDistance = model.removed().stream()
-                                    .mapToInt(var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE))
-                                    .min().orElse(Integer.MAX_VALUE);
-                            var restore = model.removed().stream()
-                                    .filter(var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
-                                    .toArray(String[]::new);
-                            int count = 0;
-                            for (String var : restore) {
-                                count++;
-                                IloNumVar v = model.nameToVar().get(var);
-                                if (v != null)
-                                    v.setUB(1.0);
-                                model.removed().remove(var);
-                                if (total + count == max) break;
-                            }
+                            var minDistance = model.removed().stream().mapToInt(
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)
+                            ).min().orElse(Integer.MAX_VALUE);
+                            var restore = model.removed().stream().filter(
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance
+                            ).collect(Collectors.toCollection(HashSet::new));
+                            int count = setUB(restore, 1.0, max - resetTotal);
+                            model.removed().removeAll(restore);
 
-                            System.out.printf("- %d fixed variables from distance <= %d were restored;\n", count, minDistance);
-                            System.out.println(
-                                    "- " + model.removed().size() + " variables out of " + model.nameToVar().size() + " are fixed;");
-                            total += count;
-                        } while (total < max && !model.removed().isEmpty());
-                        var toKeep = inst.underlying_graph.nodes();
+                            System.out.printf("\t- %d fixed variables from distance <= %d were restored;\n", count, minDistance);
+                            System.out.println("\t- " + model.removed().size() + " variables out of " + model.nameToVar().size() + " are fixed;");
+                            resetTotal += count;
+                        } while (resetTotal < max && !model.removed().isEmpty());
+                        var toKeep = inst.underlying_graph.getNodes();
                         model.removed().forEach(toKeep::remove);
                         remainingGraph = inst.underlying_graph.subgraph(toKeep);
                     } else {
@@ -471,7 +476,7 @@ public class ChallengeSolver {
                             break;
                         throw new IllegalStateException("Solution should be optimal");
                     }
-                } else if (model.nameToVar().size() > 1500) {
+                } else if (model.nameToVar().size() > 2000) {
                     Set<String> solution_nodes = new HashSet<>();
                     solution_nodes.addAll(bestSol.aisle_nodes);
                     solution_nodes.addAll(bestSol.order_nodes);
@@ -486,27 +491,19 @@ public class ChallengeSolver {
                             candidate_to_remove.add(entry.getKey());
                         }
                     }
-                    Map<String, Integer> already_removed = new HashMap<>();
-                    for (String var : model.removed()) {
-                        already_removed.put(var, 0);
-                    }
-                    int removedCount = 0;
-                    for (String var : candidate_to_remove) {
-                        model.nameToVar().get(var).setUB(0.0);
-                        if (!already_removed.containsKey(var)) {
-                            removedCount++;
-                            model.removed().add(var);
-                        }
-                    }
+                    setUB(candidate_to_remove, 0.0);
+                    candidate_to_remove.removeAll(model.removed());
+                    model.removed().addAll(candidate_to_remove);
+                    int removedCount = candidate_to_remove.size();
 
                     remainingGraph.subgraph(to_keep);
-                    System.out.println("- " + removedCount + " variables were fixed;");
-                    System.out.println("- " + model.removed().size() + " variables out of " + model.nameToVar().size() + " are fixed;");
+                    System.out.println("\t- " + removedCount + " variables were fixed;");
+                    System.out.println("\t- " + model.removed().size() + " variables out of " + model.nameToVar().size() + " are fixed;");
                 }
             }
 
-            System.out.printf("...Dinkelbach search stopped after %.2fs.\n",
-                    (System.currentTimeMillis() - dinkStart) / 1E3);
+            elapsedTime = (System.currentTimeMillis() - dinkStart) / 1E3;
+            System.out.printf("...Dinkelbach search stopped after %.2fs.\n", elapsedTime);
 
             if (bestSol.empty)
                 throw new RuntimeException("No feasible solution found!");
@@ -526,9 +523,9 @@ public class ChallengeSolver {
             model.cplex().end();
             return bestSol;
         } catch (IloException e) {
-            System.out.println("Error:\n" + e.getMessage());
+            System.out.println("CPLEX error:\n" + e.getMessage());
         } catch (Exception e) {
-            System.out.println("Encountered an error: " + e.getMessage());
+            System.out.println("Encountered an error:\n" + e.getMessage());
         }
         assert (false);
         return null;
