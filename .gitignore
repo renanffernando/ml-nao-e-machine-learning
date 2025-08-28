@@ -184,3 +184,4 @@ cython_debug/
 *.out
 cplex_output.txt
 cplex_output_lp.txt
+output

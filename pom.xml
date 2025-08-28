@@ -15,7 +15,7 @@
     </properties>
 
     <!--    Run, once, before using CPLEX:-->
-    <!--    mvn install:install-file -Dfile=/Applications/CPLEX_Studio2211//cplex/lib/cplex.jar -DgroupId=cplex -DartifactId=cplex -Dversion=22.11 -Dpackaging=jar-->
+    <!--    mvn install:install-file -Dfile=/opt/ibm/ILOG/CPLEX_Studio2211/cplex/lib/cplex.jar -DgroupId=cplex -DartifactId=cplex -Dversion=22.11 -Dpackaging=jar-->
 
     <dependencies>
         <dependency>
@@ -26,12 +26,12 @@
         </dependency>
 
         <!--        Uncomment the following lines to use OR-Tools:-->
-<!--        <dependency>-->
-<!--            <groupId>com.google.ortools</groupId>-->
-<!--            <artifactId>ortools-java</artifactId>-->
-<!--            <version>9.11.4210</version>-->
-<!--            <scope>compile</scope>-->
-<!--        </dependency>-->
+        <!--        <dependency>-->
+        <!--            <groupId>com.google.ortools</groupId>-->
+        <!--            <artifactId>ortools-java</artifactId>-->
+        <!--            <version>9.11.4210</version>-->
+        <!--            <scope>compile</scope>-->
+        <!--        </dependency>-->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -41,33 +41,28 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.2</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                            <classpathPrefix>lib/</classpathPrefix>
-                            <mainClass>org.sbpo2025.challenge.Challenge</mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
-            </plugin>
+            <!-- Shaded (fat) jar with dependencies -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.6.0</version>
-                <configuration>
-                    <createDependencyReducedPom>false</createDependencyReducedPom>
-                </configuration>
                 <executions>
                     <execution>
                         <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>shaded</shadedClassifierName>
+                            <transformers>
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>org.sbpo2025.challenge.Challenge</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
