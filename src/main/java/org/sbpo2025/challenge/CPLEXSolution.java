@@ -11,18 +11,21 @@ import java.util.Map;
 class CPLEXSolution extends ChallengeSolution {
     CPLEXSolution(IloCplex cplex,
                   Map<String, IloNumVar> nameToVar,
-                  IloNumExpr waveItemsExpr,
+                  Integer waveItems,
                   Graph instanceGraph,
                   boolean empty) throws IloException {
-        super(
-                empty ? null : extractSolutionValues(cplex, nameToVar),
-                empty ? 0 : (int) Math.round(cplex.getValue(waveItemsExpr)),
-                instanceGraph,
-                empty);
+        super(empty ? null : extractSolutionValues(cplex, nameToVar), waveItems, instanceGraph, empty);
+    }
+
+    CPLEXSolution(IloCplex cplex,
+                  Map<String, IloNumVar> nameToVar,
+                  Integer waveItems,
+                  Graph instanceGraph) throws IloException {
+        this(cplex, nameToVar, waveItems, instanceGraph, false);
     }
 
     CPLEXSolution() throws IloException {
-        this(null, null, null, null, true);
+        this(null, null, 0, null, true);
     }
 
     private static Map<String, Integer> extractSolutionValues(IloCplex cplex,

@@ -55,11 +55,14 @@ public class Challenge {
             return;
         }
 
-        Challenge challenge = new Challenge();
-        Instance instance = new Instance(args[0]);
-        var challengeSolver = new ChallengeSolver(instance);
-        ChallengeSolution challengeSolution = challengeSolver.solve(stopWatch);
-
-        challenge.writeOutput(challengeSolution, args[1]);
+        try {
+            Challenge challenge = new Challenge();
+            Instance instance = new Instance(args[0]);
+            var challengeSolver = new ChallengeSolver(instance);
+            ChallengeSolution challengeSolution = challengeSolver.solve(stopWatch);
+            challenge.writeOutput(challengeSolution, args[1]);
+        } catch (IOException e) {
+            System.out.println("Ocorreu um erro de I/O: " + e.getMessage());
+        }
     }
 }

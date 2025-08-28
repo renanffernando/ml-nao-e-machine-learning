@@ -18,12 +18,20 @@ public class Graph {
     Map<String, Integer> nodeWeight = new HashMap<>();
     int graphWeight = 0;
 
+    private Set<String> nodes() {
+        return adj.keySet();
+    }
+
     void addNode(String n) {
         adj.putIfAbsent(n, new HashSet<>());
     }
 
     void setNodeWeight(String n, int w) {
         nodeWeight.put(n, w);
+    }
+
+    Set<String> getNodes() {
+        return new HashSet<>(adj.keySet());
     }
 
     int getNodeWeight(String n) {
@@ -35,10 +43,6 @@ public class Graph {
         addNode(v);
         adj.get(u).add(v);
         adj.get(v).add(u);
-    }
-
-    Set<String> nodes() {
-        return adj.keySet();
     }
 
     Set<String> neighbors(String n) {
