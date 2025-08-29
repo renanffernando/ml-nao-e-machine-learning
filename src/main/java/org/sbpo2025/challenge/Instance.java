@@ -25,6 +25,8 @@ public class Instance {
 
     int LB, UB;
 
+    public double objLB;
+
     String input_file;
     Graph underlying_graph = new Graph();
 
