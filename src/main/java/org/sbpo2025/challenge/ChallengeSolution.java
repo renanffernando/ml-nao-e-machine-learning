@@ -1,7 +1,6 @@
 package org.sbpo2025.challenge;
 
 import java.util.Set;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -96,5 +95,57 @@ public class ChallengeSolution {
 
     public Set<Integer> get_aisles() {
         return new LinkedHashSet<>(aisles);
+    }
+
+    public void addOrder(int o, int demandUnits) {
+        String key = Helpers.oLabel(o);
+        if (!variables.containsKey(key) || variables.get(key) == 0) {
+            variables.put(key, 1);
+            order_nodes.add(key);
+            orders.add(o);
+            wave_orders++;
+            wave_items += demandUnits;
+            obj = wave_items / Math.max(1.0, wave_aisles);
+        }
+    }
+
+    public void removeOrder(int o, int demandUnits) {
+        String key = Helpers.oLabel(o);
+        if (variables.getOrDefault(key, 0) == 1) {
+            variables.put(key, 0);
+            order_nodes.remove(key);
+            orders.remove((Integer) o);
+            wave_orders--;
+            wave_items -= demandUnits;
+            obj = wave_items / Math.max(1.0, wave_aisles);
+        }
+    }
+
+    public void addAisle(int a) {
+        String key = Helpers.aLabel(a);
+        if (!variables.containsKey(key) || variables.get(key) == 0) {
+            variables.put(key, 1);
+            aisle_nodes.add(key);
+            aisles.add(a);
+            wave_aisles++;
+            obj = wave_items / Math.max(1.0, wave_aisles);
+        }
+    }
+
+    public void removeAisle(int a) {
+        String key = Helpers.aLabel(a);
+        if (variables.getOrDefault(key, 0) == 1) {
+            variables.put(key, 0);
+            aisle_nodes.remove(key);
+            aisles.remove((Integer) a);
+            wave_aisles--;
+            obj = wave_items / Math.max(1.0, wave_aisles);
+        }
+    }
+
+    public void updateGraph(Graph instanceGraph) {
+        if (empty) return;
+        computeData();
+        underlying_graph = instanceGraph.subgraph(union(order_nodes, aisle_nodes));
     }
 }
