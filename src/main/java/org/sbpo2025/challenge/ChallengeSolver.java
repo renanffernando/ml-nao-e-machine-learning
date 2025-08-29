@@ -317,6 +317,7 @@ public class ChallengeSolver {
                     }
                 }
             }
+            Integer random_try = 0;
 
             while (true) {
                 double GAP = (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
@@ -372,6 +373,7 @@ public class ChallengeSolver {
                 }
                 boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - 1e-6;
                 if (improved) {
+                    random_try = 0;
                     cplex.setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 1.0 / inst.UB);
                     cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 3);
                     bestSol = new CPLEXSolution(cplex, nameToVar, waveItemsExpr, remainingGraph, false);
@@ -441,6 +443,29 @@ public class ChallengeSolver {
                         for (Pair<Integer, String> pair : removed)
                             to_keep.remove(pair.second);
                         remainingGraph = inst.underlying_graph.subgraph(to_keep);
+
+                        if (removed.isEmpty() && random_try < 10) {
+                            Set<String> solution_nodes = new HashSet<>();
+                            solution_nodes.addAll(bestSol.aisle_nodes);
+                            solution_nodes.addAll(bestSol.order_nodes);
+                            Set<String> to_remove = remainingGraph.get_all_nodes();
+                            to_remove.removeAll(solution_nodes);
+
+                            List<String> list = new ArrayList<>(to_remove);
+                            Collections.shuffle(list);
+
+                            while (2 * (list.size() + solution_nodes.size()) > nameToVar.size() && !list.isEmpty()) {
+                                String key = list.remove(list.size() - 1);
+                                removed.add(new Pair<>(Integer.MAX_VALUE, key));
+                                nameToVar.get(key).setUB(0.0);
+                            }
+                            random_try++;
+                            solution_nodes.addAll(list);
+                            System.out.println(
+                                    "\nPerforming an random iteration using " + solution_nodes.size()
+                                            + " variables out of " + nameToVar.size());
+                            remainingGraph = remainingGraph.subgraph(solution_nodes);
+                        }
                     } else {
                         if (cplex.getStatus() == IloCplex.Status.Optimal)
                             break;
