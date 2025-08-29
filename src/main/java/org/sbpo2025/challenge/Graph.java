@@ -68,10 +68,13 @@ public class Graph {
 
     Graph subgraph(Set<String> keep) {
         Graph g = new Graph();
+        g.graphWeight = 0;
         for (String n : keep) {
             if (adj.containsKey(n)) {
                 g.addNode(n);
-                if (nodeWeight.containsKey(n)) g.setNodeWeight(n, nodeWeight.get(n));
+                var weight = nodeWeight.getOrDefault(n, 0);
+                g.setNodeWeight(n, weight);
+                g.graphWeight += weight;
             }
         }
         for (String u : keep) {
@@ -79,7 +82,6 @@ public class Graph {
                 if (keep.contains(v)) g.addEdge(u, v);
             }
         }
-        g.graphWeight = this.graphWeight;
         return g;
     }
 
