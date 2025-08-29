@@ -15,7 +15,7 @@ import ilog.cplex.*;
 public class ChallengeSolver {
 
     private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
-            IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
+                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
 
     private static Model model;
@@ -420,6 +420,7 @@ public class ChallengeSolver {
                                 "Invariant violated: wave_items - wave_aisles * lambda != dinkObj");
                     }
                     System.out.printf("\t- Found a new best solution with obj = %.3f;\n", bestSol.obj);
+                    localSearchImprove(bestSol);
                     if (bestSubSolution(bestSol, inst.LB)) {
                         ArrayList<IloNumVar> vars = new ArrayList<>();
                         for (Integer aisle : bestSol.get_aisles()) {
@@ -462,14 +463,14 @@ public class ChallengeSolver {
                         solution_nodes.addAll(bestSol.order_nodes);
                         var mapDistance = inst.underlying_graph.compute_distance_from_set(solution_nodes);
                         int resetTotal = 0;
-                        int max = Math.min(5000, (int) Math.ceil(0.6 * model.removed().size()));
-                        max = Math.max(max, 500);
+                        int max = Math.min(11000, (int) Math.ceil(0.7 * model.removed().size()));
+                        max = Math.max(max, (int) Math.ceil(0.2 * model.removed().size()));
                         do {
                             var minDistance = model.removed().stream().mapToInt(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
                                     .orElse(Integer.MAX_VALUE);
                             Set<String> restore = model.removed().stream().filter(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
                                     .collect(Collectors.toCollection(HashSet::new));
                             restore = setUB(restore, 1.0, max - resetTotal);
                             model.removed().removeAll(restore);
@@ -480,7 +481,7 @@ public class ChallengeSolver {
                             System.out.println("\t- " + model.removed().size() + " variables out of "
                                     + model.nameToVar().size() + " are fixed;");
                             resetTotal += restore.size();
-                        } while (resetTotal < max && !model.removed().isEmpty());
+                        } while ((resetTotal < max || model.removed().size() <= 1000) && !model.removed().isEmpty());
 
                         var toKeep = inst.underlying_graph.getNodes();
                         model.removed().forEach(toKeep::remove);
@@ -548,6 +549,91 @@ public class ChallengeSolver {
         return null;
     }
 
+    private void localSearchImprove(ChallengeSolution sol) {
+        boolean improved = true;
+        boolean couldImprove = false;
+        double bestObj = sol.obj;
+
+        while (improved) {
+            improved = false;
+
+            // --- Try removing redundant aisles ---
+            for (Integer a : new HashSet<>(sol.get_aisles())) {
+                sol.removeAisle(a);
+                if (isSolutionFeasible(sol)) {
+                    double obj = computeObjectiveFunction(sol);
+                    if (obj > bestObj) {
+                        bestObj = obj;
+                        improved = true;
+                        couldImprove = true;
+                        sol.obj = obj;
+                        continue;
+                    }
+                }
+                sol.addAisle(a);
+            }
+
+            // --- Try adding profitable orders ---
+            for (int o = 0; o < inst.O; o++) {
+                if (sol.get_orders().contains(o) || inst.invalid_order_nodes.contains(Helpers.oLabel(o)))
+                    continue;
+
+                int orderUnits = inst.u_oi.get(o).values().stream().mapToInt(Integer::intValue).sum();
+                sol.addOrder(o, orderUnits);
+
+                if (isSolutionFeasible(sol)) {
+                    double obj = computeObjectiveFunction(sol);
+                    if (obj > bestObj) {
+                        bestObj = obj;
+                        sol.obj = obj;
+                        improved = true;
+                        couldImprove = true;
+                        continue;
+                    }
+                }
+
+                sol.removeOrder(o, orderUnits);
+            }
+
+            // --- Try swap: remove weak order, add stronger ---
+//            var aux = sol.get_orders();
+//            for (Integer oRem : aux) {
+//                int remUnits = inst.u_oi.get(oRem).values().stream().mapToInt(Integer::intValue).sum();
+//                if (!sol.get_orders().contains(oRem)) continue;
+//                sol.removeOrder(oRem, remUnits);
+//
+//                for (int oAdd = 0; oAdd < inst.O; oAdd++) {
+//                    if (sol.get_orders().contains(oAdd) || oRem == oAdd) continue;
+//
+//                    int addUnits = inst.u_oi.get(oAdd).values().stream().mapToInt(Integer::intValue).sum();
+//                    if (addUnits <= remUnits) continue;
+//                    sol.addOrder(oAdd, addUnits);
+//
+//                    if (isSolutionFeasible(sol)) {
+//                        double obj = computeObjectiveFunction(sol);
+//                        if (obj > bestObj) {
+//                            bestObj = obj;
+//                            sol.obj = obj;
+//                            improved = true;
+//                            couldImprove = true;
+//                            System.out.printf("\t- LS: swapped order %d -> %d, obj=%.3f\n", oRem, oAdd, obj);
+//                            break;
+//                        }
+//                    }
+//
+//                    sol.removeOrder(oAdd, addUnits);
+//                }
+//
+//                if (!improved) sol.addOrder(oRem, remUnits);
+//            }
+        }
+        if (couldImprove)
+            System.out.printf("\t- LS found a new best solution with obj = %.3f;\n", bestObj);
+
+        // --- Finalize the underlying graph ---
+        sol.updateGraph(inst.underlying_graph);
+    }
+
     /*
      * Get the remaining time in seconds
      */
@@ -564,41 +650,44 @@ public class ChallengeSolver {
         return getCurrentTime(stopWatch, TimeUnit.MILLISECONDS);
     }
 
-    protected boolean isSolutionFeasible(ChallengeSolution challengeSolution) {
-        Set<Integer> selectedOrders = challengeSolution.get_orders();
-        Set<Integer> visitedAisles = challengeSolution.get_aisles();
-        if (selectedOrders == null || visitedAisles == null || selectedOrders.isEmpty() || visitedAisles.isEmpty()) {
+    protected boolean isSolutionFeasible(ChallengeSolution sol) {
+        Set<Integer> selectedOrders = sol.get_orders();
+        Set<Integer> visitedAisles = sol.get_aisles();
+
+        // Basic validity checks
+        if (selectedOrders == null || visitedAisles == null ||
+                selectedOrders.isEmpty() || visitedAisles.isEmpty()) {
             return false;
         }
 
-        int[] totalUnitsPicked = new int[inst.I];
-        int[] totalUnitsAvailable = new int[inst.I];
+        int[] totalDemand = new int[inst.I];     // demand from selected orders
+        int[] totalCapacity = new int[inst.I];   // capacity from selected aisles
 
-        // Calculate total units picked
-        /*
-         * for (int order : selectedOrders) {
-         * for (Map.Entry<Integer, Integer> entry : orders.get(order).entrySet()) {
-         * totalUnitsPicked[entry.getKey()] += entry.getValue();
-         * }
-         * }
-         *
-         * // Calculate total units available
-         * for (int aisle : visitedAisles) {
-         * for (Map.Entry<Integer, Integer> entry : aisles.get(aisle).entrySet()) {
-         * totalUnitsAvailable[entry.getKey()] += entry.getValue();
-         * }
-         * }
-         */
+        // Sum demand per item from chosen orders
+        for (int o : selectedOrders) {
+            var orderDem = inst.u_oi.get(o);
+            for (Map.Entry<Integer, Integer> e : orderDem.entrySet()) {
+                totalDemand[e.getKey()] += e.getValue();
+            }
+        }
 
-        // Check if the total units picked are within bounds
-        int totalUnits = Arrays.stream(totalUnitsPicked).sum();
+        // Sum capacity per item from chosen aisles
+        for (int a : visitedAisles) {
+            var aisleCap = inst.u_ai.get(a);
+            for (Map.Entry<Integer, Integer> e : aisleCap.entrySet()) {
+                totalCapacity[e.getKey()] += e.getValue();
+            }
+        }
+
+        // Total picked units
+        int totalUnits = Arrays.stream(totalDemand).sum();
         if (totalUnits < inst.LB || totalUnits > inst.UB) {
             return false;
         }
 
-        // Check if the units picked do not exceed the units available
+        // Demand must not exceed supply for any item
         for (int i = 0; i < inst.I; i++) {
-            if (totalUnitsPicked[i] > totalUnitsAvailable[i]) {
+            if (totalDemand[i] > totalCapacity[i]) {
                 return false;
             }
         }
@@ -606,27 +695,28 @@ public class ChallengeSolver {
         return true;
     }
 
-    protected double computeObjectiveFunction(ChallengeSolution challengeSolution) {
-        Set<Integer> selectedOrders = challengeSolution.get_orders();
-        Set<Integer> visitedAisles = challengeSolution.get_aisles();
-        if (selectedOrders == null || visitedAisles == null || selectedOrders.isEmpty() || visitedAisles.isEmpty()) {
+    protected double computeObjectiveFunction(ChallengeSolution sol) {
+        Set<Integer> selectedOrders = sol.get_orders();
+        Set<Integer> visitedAisles = sol.get_aisles();
+
+        if (selectedOrders == null || visitedAisles == null ||
+                selectedOrders.isEmpty() || visitedAisles.isEmpty()) {
             return 0.0;
         }
+
+        // --- 1. Compute total demand units from selected orders ---
         int totalUnitsPicked = 0;
+        for (int o : selectedOrders) {
+            Map<Integer, Integer> orderDem = inst.u_oi.get(o);
+            for (int demand : orderDem.values()) {
+                totalUnitsPicked += demand;
+            }
+        }
 
-        // Calculate total units picked
-        /*
-         * for (int order : selectedOrders) {
-         * totalUnitsPicked += orders.get(order).values().stream()
-         * .mapToInt(Integer::intValue)
-         * .sum();
-         * }
-         */
-
-        // Calculate the number of visited aisles
+        // --- 2. Compute denominator: number of aisles visited ---
         int numVisitedAisles = visitedAisles.size();
 
-        // Objective function: total units picked / number of visited aisles
+        // --- 3. Objective value ---
         return (double) totalUnitsPicked / numVisitedAisles;
     }
 }
