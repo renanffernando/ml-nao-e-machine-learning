@@ -18,6 +18,10 @@ public class Graph {
     Map<String, Integer> nodeWeight = new HashMap<>();
     int graphWeight = 0;
 
+    private Set<String> nodes() {
+        return adj.keySet();
+    }
+
     void addNode(String n) {
         adj.putIfAbsent(n, new HashSet<>());
     }
@@ -26,10 +30,8 @@ public class Graph {
         nodeWeight.put(n, w);
     }
 
-    Set<String> get_all_nodes() {
-        Set<String> nodes = new HashSet<>();
-        nodes.addAll(adj.keySet());
-        return nodes;
+    Set<String> getNodes() {
+        return new HashSet<>(adj.keySet());
     }
 
     int getNodeWeight(String n) {
@@ -43,17 +45,12 @@ public class Graph {
         adj.get(v).add(u);
     }
 
-    Set<String> nodes() {
-        return adj.keySet();
-    }
-
     Set<String> neighbors(String n) {
         return adj.getOrDefault(n, Collections.emptySet());
     }
 
     void removeNode(String n) {
-        if (!adj.containsKey(n))
-            return;
+        if (!adj.containsKey(n)) return;
         for (String nb : adj.get(n)) {
             adj.get(nb).remove(n);
         }
@@ -64,8 +61,7 @@ public class Graph {
     Set<String> isolates() {
         Set<String> res = new HashSet<>();
         for (var e : adj.entrySet()) {
-            if (e.getValue().isEmpty())
-                res.add(e.getKey());
+            if (e.getValue().isEmpty()) res.add(e.getKey());
         }
         return res;
     }
@@ -75,14 +71,12 @@ public class Graph {
         for (String n : keep) {
             if (adj.containsKey(n)) {
                 g.addNode(n);
-                if (nodeWeight.containsKey(n))
-                    g.setNodeWeight(n, nodeWeight.get(n));
+                if (nodeWeight.containsKey(n)) g.setNodeWeight(n, nodeWeight.get(n));
             }
         }
         for (String u : keep) {
             for (String v : neighbors(u)) {
-                if (keep.contains(v))
-                    g.addEdge(u, v);
+                if (keep.contains(v)) g.addEdge(u, v);
             }
         }
         g.graphWeight = this.graphWeight;
@@ -93,8 +87,7 @@ public class Graph {
         List<Set<String>> comps = new ArrayList<>();
         Set<String> vis = new HashSet<>();
         for (String s : nodes()) {
-            if (vis.contains(s))
-                continue;
+            if (vis.contains(s)) continue;
             Set<String> comp = new HashSet<>();
             Deque<String> dq = new ArrayDeque<>();
             dq.add(s);
@@ -132,10 +125,10 @@ public class Graph {
         // Multi-source BFS
         while (!queue.isEmpty()) {
             String u = queue.poll();
-            int distU = distMap.get(u);
+            int distU = distMap.getOrDefault(u, Integer.MAX_VALUE);
 
-            for (String v : adj.getOrDefault(u, new HashSet<String>())) {
-                if (distMap.get(v) == Integer.MAX_VALUE) {
+            for (String v : adj.getOrDefault(u, new HashSet<>())) {
+                if (distMap.getOrDefault(v, Integer.MAX_VALUE) == Integer.MAX_VALUE) {
                     distMap.put(v, distU + 1);
                     queue.add(v);
                 }

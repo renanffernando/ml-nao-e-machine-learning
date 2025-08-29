@@ -1,9 +1,6 @@
 package org.sbpo2025.challenge;
 
-import java.io.BufferedReader;
-import java.io.EOFException;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -28,96 +25,94 @@ public class Instance {
 
     int LB, UB;
 
+    public double objLB;
+
     String input_file;
     Graph underlying_graph = new Graph();
 
-    Instance(String inputFilePath) {
-        try {
-            this.input_file = inputFilePath;
-            BufferedReader br = new BufferedReader(new FileReader(inputFilePath));
+    Instance(String inputFilePath) throws IOException {
+        this.input_file = inputFilePath;
+        BufferedReader br = new BufferedReader(new FileReader(inputFilePath));
 
-            // First line: O I A
-            {
-                String[] tokens = nextNonEmptyLine(br).trim().split("\\s+");
-                O = Integer.parseInt(tokens[0]);
-                I = Integer.parseInt(tokens[1]);
-                A = Integer.parseInt(tokens[2]);
-            }
-
-            item_orders = new ArrayList<>(I);
-            item_aisles = new ArrayList<>(I);
-            for (int i = 0; i < I; i++) {
-                item_orders.add(new HashSet<>());
-                item_aisles.add(new HashSet<>());
-            }
-
-            // add nodes for bipartite sets
-            for (int o = 0; o < O; o++)
-                underlying_graph.addNode(Helpers.oLabel(o));
-            for (int a = 0; a < A; a++)
-                underlying_graph.addNode(Helpers.aLabel(a));
-
-            u_oi = new ArrayList<>(O);
-            for (int o = 0; o < O; o++) {
-                u_oi.add(new HashMap<>());
-                String line = nextNonEmptyLine(br);
-                int[] data = parseIntLine(line);
-
-                int sumQty = 0;
-                Set<Integer> itemsHere = new HashSet<>();
-                for (int p = 1; p + 1 < data.length; p += 2) {
-                    int idx = data[p];
-                    int qty = data[p + 1];
-                    u_oi.get(o).put(idx, qty);
-                    if (qty > 0) {
-                        item_orders.get(idx).add(o);
-                        itemsHere.add(idx);
-                        sumQty += qty;
-                    }
-                }
-                order_items.add(itemsHere);
-                underlying_graph.setNodeWeight(Helpers.oLabel(o), sumQty);
-            }
-
-            // Read aisles matrix: also sparse pairs
-            u_ai = new ArrayList<>(A);
-            for (int a = 0; a < A; a++) {
-                u_ai.add(new HashMap<>());
-                String line = nextNonEmptyLine(br);
-                int[] data = parseIntLine(line);
-                Set<Integer> itemsHere = new HashSet<>();
-                for (int p = 1; p + 1 < data.length; p += 2) {
-                    int idx = data[p];
-                    int qty = data[p + 1];
-                    u_ai.get(a).put(idx, qty);
-                    if (qty > 0) {
-                        item_aisles.get(idx).add(a);
-                        itemsHere.add(idx);
-                    }
-                }
-                aisle_items.add(itemsHere);
-                Set<Integer> seenOrders = new HashSet<>();
-
-                for (int i : itemsHere) {
-                    for (int o : item_orders.get(i)) {
-                        if (!seenOrders.contains(o)) {
-                            seenOrders.add(o);
-                            underlying_graph.addEdge(Helpers.oLabel(o), Helpers.aLabel(a));
-                        }
-                    }
-                }
-            }
-
-            {
-                String[] tokens = nextNonEmptyLine(br).trim().split("\\s+");
-                LB = Integer.parseInt(tokens[0]);
-                UB = Integer.parseInt(tokens[1]);
-            }
-
-            br.close();
-        } catch (IOException e) {
-            System.out.println("Ocorreu um erro de I/O: " + e.getMessage());
+        // First line: O I A
+        {
+            String[] tokens = nextNonEmptyLine(br).trim().split("\\s+");
+            O = Integer.parseInt(tokens[0]);
+            I = Integer.parseInt(tokens[1]);
+            A = Integer.parseInt(tokens[2]);
         }
+
+        item_orders = new ArrayList<>(I);
+        item_aisles = new ArrayList<>(I);
+        for (int i = 0; i < I; i++) {
+            item_orders.add(new HashSet<>());
+            item_aisles.add(new HashSet<>());
+        }
+
+        // add nodes for bipartite sets
+        for (int o = 0; o < O; o++)
+            underlying_graph.addNode(Helpers.oLabel(o));
+        for (int a = 0; a < A; a++)
+            underlying_graph.addNode(Helpers.aLabel(a));
+
+        u_oi = new ArrayList<>(O);
+        for (int o = 0; o < O; o++) {
+            u_oi.add(new HashMap<>());
+            String line = nextNonEmptyLine(br);
+            int[] data = parseIntLine(line);
+
+            int sumQty = 0;
+            Set<Integer> itemsHere = new HashSet<>();
+            for (int p = 1; p + 1 < data.length; p += 2) {
+                int idx = data[p];
+                int qty = data[p + 1];
+                u_oi.get(o).put(idx, qty);
+                if (qty > 0) {
+                    item_orders.get(idx).add(o);
+                    itemsHere.add(idx);
+                    sumQty += qty;
+                }
+            }
+            order_items.add(itemsHere);
+            underlying_graph.setNodeWeight(Helpers.oLabel(o), sumQty);
+        }
+
+        // Read aisles matrix: also sparse pairs
+        u_ai = new ArrayList<>(A);
+        for (int a = 0; a < A; a++) {
+            u_ai.add(new HashMap<>());
+            String line = nextNonEmptyLine(br);
+            int[] data = parseIntLine(line);
+            Set<Integer> itemsHere = new HashSet<>();
+            for (int p = 1; p + 1 < data.length; p += 2) {
+                int idx = data[p];
+                int qty = data[p + 1];
+                u_ai.get(a).put(idx, qty);
+                if (qty > 0) {
+                    item_aisles.get(idx).add(a);
+                    itemsHere.add(idx);
+                }
+            }
+            aisle_items.add(itemsHere);
+            Set<Integer> seenOrders = new HashSet<>();
+
+            for (int i : itemsHere) {
+                for (int o : item_orders.get(i)) {
+                    if (!seenOrders.contains(o)) {
+                        seenOrders.add(o);
+                        underlying_graph.addEdge(Helpers.oLabel(o), Helpers.aLabel(a));
+                    }
+                }
+            }
+        }
+
+        {
+            String[] tokens = nextNonEmptyLine(br).trim().split("\\s+");
+            LB = Integer.parseInt(tokens[0]);
+            UB = Integer.parseInt(tokens[1]);
+        }
+
+        br.close();
     }
 
     List<Graph> getComponents() {
@@ -128,7 +123,7 @@ public class Instance {
         return comps;
     }
 
-    void clear_orders(List<Integer> invalidOrders) {
+    int clear_orders(List<Integer> invalidOrders) {
         for (int o : invalidOrders)
             invalid_order_nodes.add(Helpers.oLabel(o));
         for (String n : invalid_order_nodes)
@@ -138,6 +133,7 @@ public class Instance {
             underlying_graph.removeNode(n);
         for (int o : invalidOrders)
             u_oi.get(o).clear();
+        return trivial_nodes.size();
     }
 
     double trivial_ub() {

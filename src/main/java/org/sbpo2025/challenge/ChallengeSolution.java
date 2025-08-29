@@ -58,7 +58,7 @@ public class ChallengeSolution {
         }
         wave_orders = orders.size();
         wave_aisles = aisles.size();
-        obj = wave_aisles > 0 ? (wave_items * 1.0 / wave_aisles) : (wave_items);
+        obj = wave_items / Math.max(1.0, wave_aisles);
     }
 
     List<Graph> getComponents() {
@@ -70,7 +70,7 @@ public class ChallengeSolution {
     }
 
     void restrict_solution(Graph comp) {
-        Set<String> compNodes = comp.nodes();
+        Set<String> compNodes = comp.getNodes();
         for (String node : new HashSet<>(order_nodes)) {
             if (!compNodes.contains(node))
                 variables.put(node, 0);
