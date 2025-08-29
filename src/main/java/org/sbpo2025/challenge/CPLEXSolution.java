@@ -9,17 +9,17 @@ import java.util.Map;
 
 class CPLEXSolution extends ChallengeSolution {
     CPLEXSolution(IloCplex cplex,
-            Map<String, IloNumVar> nameToVar,
-            Integer waveItems,
-            Graph instanceGraph,
-            boolean empty) throws IloException {
+                  Map<String, IloNumVar> nameToVar,
+                  Integer waveItems,
+                  Graph instanceGraph,
+                  boolean empty) throws IloException {
         super(empty ? null : extractSolutionValues(cplex, nameToVar), waveItems, instanceGraph, empty);
     }
 
     CPLEXSolution(IloCplex cplex,
-            Map<String, IloNumVar> nameToVar,
-            Integer waveItems,
-            Graph instanceGraph) throws IloException {
+                  Map<String, IloNumVar> nameToVar,
+                  Integer waveItems,
+                  Graph instanceGraph) throws IloException {
         this(cplex, nameToVar, waveItems, instanceGraph, false);
     }
 
@@ -28,7 +28,7 @@ class CPLEXSolution extends ChallengeSolution {
     }
 
     private static Map<String, Integer> extractSolutionValues(IloCplex cplex,
-            Map<String, IloNumVar> nameToVar)
+                                                              Map<String, IloNumVar> nameToVar)
             throws IloException {
         Map<String, Integer> vals = new HashMap<>();
         for (var e : nameToVar.entrySet()) {
