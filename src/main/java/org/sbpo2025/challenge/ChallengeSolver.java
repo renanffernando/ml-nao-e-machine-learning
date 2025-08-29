@@ -347,15 +347,13 @@ public class ChallengeSolver {
 
             model.cplex().setParam(IloCplex.DoubleParam.TimeLimit, Math.min(45.0, totalTime));
             model.cplex().setParam(IloCplex.Param.MIP.Pool.Capacity, 2);
-            // Upper cutoff -> use as an incumbent cutoff surrogate:
-            // cplex.setParam(IloCplex.DoubleParam.MIP.Limits.UpperObjStop, 1.0 / inst.UB);
-            // cplex.setParam(IloCplex.Param.MIP.Limits.Solutions, 2);
 
             System.out.println("\nStarting Dinkelbach search...");
             long dinkStart = System.currentTimeMillis();
             long iterStart = System.currentTimeMillis();
             boolean is_first_iteration = true;
 
+            var finalIter = true;
             while (true) {
                 double GAP = 100 * (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
                 System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ", OPT_LB, OPT_UB, GAP,
@@ -410,9 +408,8 @@ public class ChallengeSolver {
 
                 boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - TOL;
                 if (improved) {
-                    // model.cplex().setParam(IloCplex.Param.MIP.Tolerances.MIPGap, 1);
                     model.cplex().setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 1.0 / inst.UB);
-                    model.cplex().setParam(IloCplex.Param.MIP.Limits.Solutions, 3);
+                    model.cplex().setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
                     bestSol = new CPLEXSolution(model.cplex(), model.nameToVar(), waveItemsVal, remainingGraph);
                     if (!is_first_iteration
                             && Math.abs(bestSol.wave_items - bestSol.wave_aisles * lambda - dinkObj) >= TOL) {
@@ -487,6 +484,15 @@ public class ChallengeSolver {
                         model.removed().forEach(toKeep::remove);
                         remainingGraph = inst.underlying_graph.subgraph(toKeep);
                     } else {
+                        if (finalIter) {
+                            finalIter = false;
+                            System.out.println("Running final iteration (resetting all parameters)...");
+                            model.cplex().setParam(IloCplex.Param.MIP.Pool.Capacity, 2100000000);
+                            model.cplex().setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, -1E+75);
+                            model.cplex().setParam(IloCplex.Param.MIP.Limits.Solutions, 9223372036800000000L);
+                            model.cplex().setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Optimality);
+                            continue;
+                        }
                         if (model.cplex().getStatus() == IloCplex.Status.Optimal)
                             break;
                         throw new IllegalStateException("Solution should be optimal");
