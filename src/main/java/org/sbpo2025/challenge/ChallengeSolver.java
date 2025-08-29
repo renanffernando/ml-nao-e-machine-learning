@@ -463,6 +463,7 @@ public class ChallengeSolver {
                         var mapDistance = inst.underlying_graph.compute_distance_from_set(solution_nodes);
                         int resetTotal = 0;
                         int max = Math.min(5000, (int) Math.ceil(0.6 * model.removed().size()));
+                        max = Math.max(max, 500);
                         do {
                             var minDistance = model.removed().stream().mapToInt(
                                     var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
