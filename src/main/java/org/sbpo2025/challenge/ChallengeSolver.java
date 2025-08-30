@@ -345,7 +345,7 @@ public class ChallengeSolver {
             double timeTolerance = 5.0;
             double timeLimit = totalTime;
 
-            model.cplex().setParam(IloCplex.DoubleParam.TimeLimit, Math.min(45.0, totalTime));
+            model.cplex().setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
             model.cplex().setParam(IloCplex.Param.MIP.Pool.Capacity, 2);
 
             System.out.println("\nStarting Dinkelbach search...");
