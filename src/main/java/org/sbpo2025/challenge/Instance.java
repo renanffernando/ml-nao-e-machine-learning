@@ -23,6 +23,9 @@ public class Instance {
     Set<String> invalid_order_nodes = new HashSet<>();
     Set<String> trivial_nodes = new HashSet<>();
 
+    List<Integer> numItemsPerOrder = new ArrayList<>();
+    List<List<Integer>> orderNeighbors = new ArrayList<>();
+
     int LB, UB;
 
     public double objLB;
@@ -75,6 +78,16 @@ public class Instance {
             }
             order_items.add(itemsHere);
             underlying_graph.setNodeWeight(Helpers.oLabel(o), sumQty);
+            numItemsPerOrder.add(sumQty);
+        }
+
+        // For each order o, compute the order that share at least one item with o
+        for (int o = 0; o < O; o++) {
+            Set<Integer> neighbors = new HashSet<>();
+            for (Integer i : u_oi.get(o).keySet())
+                neighbors.addAll(item_orders.get(i));
+            neighbors.remove(o);
+            orderNeighbors.add(neighbors.stream().toList());
         }
 
         // Read aisles matrix: also sparse pairs
@@ -164,7 +177,8 @@ public class Instance {
     private static String nextNonEmptyLine(BufferedReader br) throws IOException {
         String line;
         while ((line = br.readLine()) != null) {
-            if (!line.trim().isEmpty()) return line;
+            if (!line.trim().isEmpty())
+                return line;
         }
         throw new EOFException("Unexpected end of file.");
     }
