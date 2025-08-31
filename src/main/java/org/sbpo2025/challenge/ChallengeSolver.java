@@ -15,7 +15,7 @@ import ilog.cplex.*;
 public class ChallengeSolver {
 
     private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
-            IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
+                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
 
     private static Model model;
@@ -379,7 +379,7 @@ public class ChallengeSolver {
                     setUB(model.removed(), 1.0);
                     model.removed().clear();
                     model.cplex.remove(model.cplex.getObjective());
-                    System.out.println("\n\t- Warm start variables selected by LP relaxation are not feasible;");
+                    System.out.println("\n\t- Variables selected by the LP relaxation do not yield a feasible solution;");
                     continue;
                 }
 
@@ -460,16 +460,15 @@ public class ChallengeSolver {
                         solution_nodes.addAll(bestSol.order_nodes);
                         var mapDistance = inst.underlying_graph.compute_distance_from_set(solution_nodes);
                         int resetTotal = 0;
-                        int max = Math.min(11000,
-                                Math.max((int) model.nameToVar().size() / 5, (int) (0.6 * model.removed().size())));
+                        int max = Math.max(5000, Math.min(11000, model.nameToVar().size() / 5));
                         if (model.removed().size() - max < model.nameToVar().size() / 5)
                             max = model.removed().size();
                         do {
                             var minDistance = model.removed().stream().mapToInt(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
                                     .orElse(Integer.MAX_VALUE);
                             Set<String> restore = model.removed().stream().filter(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
                                     .collect(Collectors.toCollection(HashSet::new));
                             restore = setUB(restore, 1.0, max - resetTotal);
                             model.removed().removeAll(restore);
@@ -497,7 +496,7 @@ public class ChallengeSolver {
                         }
                         if (model.cplex().getStatus() == IloCplex.Status.Optimal)
                             break;
-                        throw new IllegalStateException("Solution should be optimal");
+                        throw new IllegalStateException("Solution should be optimal!");
                     }
                 } else if (model.nameToVar().size() > 2000) {
                     Set<String> solution_nodes = new HashSet<>();
@@ -517,6 +516,7 @@ public class ChallengeSolver {
                                                 + " was removed but it is on the remaining graph");
                             to_remove.add(entry.getKey());
                         }
+                        if (model.removed().size() >= 0.75 * model.nameToVar().size()) break;
                     }
                     setUB(to_remove, 0.0);
                     model.removed().addAll(to_remove);
@@ -642,22 +642,22 @@ public class ChallengeSolver {
              * if (!sol.get_orders().contains(oRem))
              * continue;
              * int remUnits = inst.numItemsPerOrder.get(oRem);
-             * 
+             *
              * for (Integer oAdd : inst.orderNeighbors.get(oRem)) {
              * if (sol.get_orders().contains(oAdd))
              * continue;
-             * 
+             *
              * int addUnits = inst.numItemsPerOrder.get(oRem);
              * if (addUnits <= remUnits || sol.wave_items + (addUnits - remUnits) > inst.UB)
              * continue;
-             * 
+             *
              * if (checkIfHasDemandForSwap(delta, oRem, oAdd)) {
              * sol.removeOrder(remUnits, remUnits);
              * sol.addOrder(oAdd, addUnits);
-             * 
+             *
              * if (!isSolutionFeasible(sol))
              * throw new RuntimeException("Solution should be valid after swap orders");
-             * 
+             *
              * double obj = computeObjectiveFunction(sol);
              * if (obj <= bestObj)
              * throw new RuntimeException("Solution should be better after swap orders");
