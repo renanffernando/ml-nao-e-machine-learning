@@ -15,7 +15,7 @@ import ilog.cplex.*;
 public class ChallengeSolver {
 
     private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
-                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
+            IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
 
     private static Model model;
@@ -379,7 +379,8 @@ public class ChallengeSolver {
                     setUB(model.removed(), 1.0);
                     model.removed().clear();
                     model.cplex.remove(model.cplex.getObjective());
-                    System.out.println("\n\t- Variables selected by the LP relaxation do not yield a feasible solution;");
+                    System.out
+                            .println("\n\t- Variables selected by the LP relaxation do not yield a feasible solution;");
                     continue;
                 }
 
@@ -465,10 +466,10 @@ public class ChallengeSolver {
                             max = model.removed().size();
                         do {
                             var minDistance = model.removed().stream().mapToInt(
-                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
                                     .orElse(Integer.MAX_VALUE);
                             Set<String> restore = model.removed().stream().filter(
-                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
                                     .collect(Collectors.toCollection(HashSet::new));
                             restore = setUB(restore, 1.0, max - resetTotal);
                             model.removed().removeAll(restore);
@@ -516,7 +517,8 @@ public class ChallengeSolver {
                                                 + " was removed but it is on the remaining graph");
                             to_remove.add(entry.getKey());
                         }
-                        if (model.removed().size() >= 0.75 * model.nameToVar().size()) break;
+                        if (model.removed().size() >= 0.75 * model.nameToVar().size())
+                            break;
                     }
                     setUB(to_remove, 0.0);
                     model.removed().addAll(to_remove);
@@ -593,6 +595,8 @@ public class ChallengeSolver {
         while (improved) {
             improved = false;
             int[] delta = compute_delta(sol);
+            if (delta == null)
+                return;
 
             // --- Try removing redundant aisles ---
             for (Integer a : new HashSet<>(sol.get_aisles())) {
