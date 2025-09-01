@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class WaveOrderPicking:
     def __init__(self):
         self.orders = None
@@ -82,8 +83,10 @@ class WaveOrderPicking:
         # Objective function: total units picked / number of visited aisles
         return total_units_picked / num_visited_aisles
 
+
 if __name__ == "__main__":
     import sys
+
     if len(sys.argv) != 3:
         print("Usage: python checker.py <input_file> <output_file>")
         sys.exit(1)

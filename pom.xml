@@ -15,7 +15,7 @@
     </properties>
 
     <!--    Run, once, before using CPLEX:-->
-    <!--    mvn install:install-file -Dfile=/Applications/CPLEX_Studio2211//cplex/lib/cplex.jar -DgroupId=cplex -DartifactId=cplex -Dversion=22.11 -Dpackaging=jar-->
+    <!--    mvn install:install-file -Dfile=/Applications/CPLEX_Studio2211/cplex/lib/cplex.jar -DgroupId=cplex -DartifactId=cplex -Dversion=22.11 -Dpackaging=jar-->
 
     <dependencies>
         <dependency>
@@ -26,12 +26,12 @@
         </dependency>
 
         <!--        Uncomment the following lines to use OR-Tools:-->
-<!--        <dependency>-->
-<!--            <groupId>com.google.ortools</groupId>-->
-<!--            <artifactId>ortools-java</artifactId>-->
-<!--            <version>9.11.4210</version>-->
-<!--            <scope>compile</scope>-->
-<!--        </dependency>-->
+        <!--        <dependency>-->
+        <!--            <groupId>com.google.ortools</groupId>-->
+        <!--            <artifactId>ortools-java</artifactId>-->
+        <!--            <version>9.11.4210</version>-->
+        <!--            <scope>compile</scope>-->
+        <!--        </dependency>-->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>

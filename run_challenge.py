@@ -1,3 +1,4 @@
+# RUN COMMAND: python run_challenge.py . datasets/a output/a
 import os
 import subprocess
 import sys
@@ -90,7 +91,8 @@ def run_benchmark(source_folder, input_folder, output_folder):
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("Usage: python run_challenge.py <source_folder> <input_folder> <output_folder>")
+        print("Usage:   python run_challenge.py <source_folder> <input_folder> <output_folder>")
+        print("Example: python run_challenge.py . datasets/a output/a")
         sys.exit(1)
 
     source_folder = os.path.abspath(sys.argv[1])
