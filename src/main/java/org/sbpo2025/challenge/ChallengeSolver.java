@@ -15,7 +15,7 @@ import ilog.cplex.*;
 public class ChallengeSolver {
 
     private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
-                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
+            IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
 
     private static Model model;
@@ -322,6 +322,20 @@ public class ChallengeSolver {
         setUB(removed, 0.0);
     }
 
+    private void set_incumbent_as_start(CPLEXSolution bestSol) throws IloException {
+        ArrayList<IloNumVar> vars = new ArrayList<>();
+        for (Integer aisle : bestSol.get_aisles()) {
+            vars.add(model.nameToVar().get(Helpers.aLabel(aisle)));
+        }
+        for (Integer order : bestSol.get_orders()) {
+            vars.add(model.nameToVar().get(Helpers.oLabel(order)));
+        }
+        double[] values = new double[vars.size()];
+        Arrays.fill(values, 1.0);
+        var varArray = vars.toArray(new IloNumVar[0]);
+        model.cplex().addMIPStart(varArray, values, IloCplex.MIPStartEffort.Repair, "MyStart");
+    }
+
     public ChallengeSolution solve(StopWatch stopWatch) {
         try {
             // ---- Preprocess
@@ -360,13 +374,16 @@ public class ChallengeSolver {
             var finalIter = true;
             var superRemoved = new HashSet<String>();
             var secondProcess = true;
+            boolean failed_to_set_last_inc = false;
+
             while (true) {
                 if (!bestSol.empty) {
                     var aux = bestSol.wave_items;
                     var aux2 = bestSol.obj;
                     for (int a = 0; a < inst.A; a++) {
                         var adj = inst.u_ai.get(a);
-                        if (adj.isEmpty()) continue;
+                        if (adj.isEmpty())
+                            continue;
                         var cap = adj.values().stream().mapToInt(Integer::intValue).sum();
                         if (aux - cap >= inst.LB && cap < aux2) {
                             superRemoved.add(Helpers.aLabel(a));
@@ -384,7 +401,12 @@ public class ChallengeSolver {
                         secondProcess = false;
                     }
                 }
-                System.out.println("\t- Variables were super removed = " + superRemoved.size() + " out of " + model.nameToVar().size() + " aisles: " + inst.A);
+                System.out.println("\t- Variables were super removed = " + superRemoved.size() + " out of "
+                        + model.nameToVar().size() + " aisles: " + inst.A);
+
+                if (failed_to_set_last_inc)
+                    set_incumbent_as_start(bestSol);
+
                 double GAP = 100 * (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
                 System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ", OPT_LB, OPT_UB, GAP,
                         lambda);
@@ -436,6 +458,7 @@ public class ChallengeSolver {
                 if (!is_first_iteration && model.removed().isEmpty() && currentObj < -TOL) {
                     throw new IllegalStateException("Negative Objective Function!");
                 }
+                failed_to_set_last_inc = dinkObj < -TOL;
 
                 boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - TOL;
                 if (improved) {
@@ -448,20 +471,10 @@ public class ChallengeSolver {
                                 "Invariant violated: wave_items - wave_aisles * lambda != dinkObj");
                     }
                     System.out.printf("\t- Found a new best solution with obj = %.3f;\n", bestSol.obj);
-                    localSearchImprove(bestSol);
-                    if (bestSubSolution(bestSol, inst.LB)) {
-                        ArrayList<IloNumVar> vars = new ArrayList<>();
-                        for (Integer aisle : bestSol.get_aisles()) {
-                            vars.add(model.nameToVar().get(Helpers.aLabel(aisle)));
-                        }
-                        for (Integer order : bestSol.get_orders()) {
-                            vars.add(model.nameToVar().get(Helpers.oLabel(order)));
-                        }
-                        double[] values = new double[vars.size()];
-                        Arrays.fill(values, 1.0);
-                        var varArray = vars.toArray(new IloNumVar[0]);
-                        model.cplex().addMIPStart(varArray, values, IloCplex.MIPStartEffort.Repair, "MyStart");
-                    }
+                    if (localSearchImprove(bestSol))
+                        set_incumbent_as_start(bestSol);
+                    if (bestSubSolution(bestSol, inst.LB))
+                        set_incumbent_as_start(bestSol);
                 }
 
                 // First iteration reset:
@@ -496,10 +509,10 @@ public class ChallengeSolver {
                             max = model.removed().size();
                         do {
                             var minDistance = model.removed().stream().mapToInt(
-                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
                                     .orElse(Integer.MAX_VALUE);
                             Set<String> restore = model.removed().stream().filter(
-                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
                                     .collect(Collectors.toCollection(HashSet::new));
                             restore = setUB(restore, 1.0, max - resetTotal);
                             model.removed().removeAll(restore);
@@ -617,7 +630,7 @@ public class ChallengeSolver {
         return true;
     }
 
-    private void localSearchImprove(ChallengeSolution sol) {
+    private boolean localSearchImprove(ChallengeSolution sol) {
         boolean improved = true;
         boolean couldImprove = false;
         double bestObj = sol.obj;
@@ -626,7 +639,7 @@ public class ChallengeSolver {
             improved = false;
             int[] delta = compute_delta(sol);
             if (delta == null)
-                return;
+                return false;
 
             // --- Try removing redundant aisles ---
             for (Integer a : new HashSet<>(sol.get_aisles())) {
@@ -666,6 +679,130 @@ public class ChallengeSolver {
                 }
             }
 
+            if (improved)
+                continue;
+
+            List<Integer> selectedOrders = sol.get_orders()
+                    .stream()
+                    .sorted((a, b) -> Integer.compare(
+                            inst.numItemsPerOrder.get(b),
+                            inst.numItemsPerOrder.get(a)))
+                    .toList();
+
+            List<Integer> cur_aisles = sol.get_aisles().stream().toList();
+            for (int id_a : cur_aisles) {
+                sol.removeAisle(id_a);
+                Set<Integer> visitedAisles = sol.get_aisles();
+                List<Integer> removeList = new ArrayList<>();
+
+                int[] balanceDemandCapacity = new int[inst.I];
+
+                for (int a : visitedAisles) {
+                    var aisleCap = inst.u_ai.get(a);
+                    for (Map.Entry<Integer, Integer> e : aisleCap.entrySet()) {
+                        balanceDemandCapacity[e.getKey()] += e.getValue();
+                    }
+                }
+
+                int addedItems = 0;
+                for (int o : selectedOrders) {
+                    var orderDem = inst.u_oi.get(o);
+                    boolean is_good = true;
+                    for (Map.Entry<Integer, Integer> e : orderDem.entrySet()) {
+                        if (balanceDemandCapacity[e.getKey()] < e.getValue()) {
+                            is_good = false;
+                            break;
+                        }
+                    }
+                    if (!is_good) {
+                        removeList.add(o);
+                        continue;
+                    }
+                    for (Map.Entry<Integer, Integer> e : orderDem.entrySet())
+                        balanceDemandCapacity[e.getKey()] -= e.getValue();
+                    addedItems += inst.numItemsPerOrder.get(o);
+                }
+
+                if (addedItems >= inst.LB && 1.0 * addedItems / sol.wave_aisles > bestObj + 1e-9) {
+                    for (int o : removeList)
+                        sol.removeOrder(o, inst.numItemsPerOrder.get(o));
+                    if (!isSolutionFeasible(sol))
+                        throw new RuntimeException("Solution should be valid after remove aisle");
+                    double obj = computeObjectiveFunction(sol);
+                    if (obj <= bestObj)
+                        throw new RuntimeException("Solution should be valid after remove aisle");
+                    bestObj = obj;
+                    improved = true;
+                    couldImprove = true;
+                    sol.obj = obj;
+                    delta = compute_delta(sol);
+                } else {
+                    sol.addAisle(id_a);
+                }
+            }
+            if (improved)
+                continue;
+
+            selectedOrders = new ArrayList<>();
+            for (int o = 0; o < inst.O; o++)
+                selectedOrders.add(o);
+            selectedOrders = selectedOrders.stream().sorted((a, b) -> Integer.compare(
+                    inst.numItemsPerOrder.get(b),
+                    inst.numItemsPerOrder.get(a)))
+                    .toList();
+
+            Set<Integer> my_aisle = sol.get_aisles();
+
+            for (int id_a = 0; id_a < inst.A; id_a++) {
+                if (my_aisle.contains(id_a))
+                    continue;
+
+                int[] balanceDemandCapacity = delta.clone();
+
+                var aisleCap = inst.u_ai.get(id_a);
+                for (Map.Entry<Integer, Integer> e : aisleCap.entrySet())
+                    balanceDemandCapacity[e.getKey()] += e.getValue();
+
+                int addedItems = sol.wave_items;
+                var sol_orders = sol.get_orders();
+                List<Integer> ordersToAdd = new ArrayList<>();
+                for (int o : selectedOrders) {
+                    if (inst.u_oi.get(o).isEmpty() || sol_orders.contains(o)
+                            || addedItems + inst.numItemsPerOrder.get(o) > inst.UB)
+                        continue;
+                    var orderDem = inst.u_oi.get(o);
+                    boolean is_good = true;
+                    for (Map.Entry<Integer, Integer> e : orderDem.entrySet()) {
+                        if (balanceDemandCapacity[e.getKey()] < e.getValue()) {
+                            is_good = false;
+                            break;
+                        }
+                    }
+                    if (!is_good)
+                        continue;
+                    for (Map.Entry<Integer, Integer> e : orderDem.entrySet())
+                        balanceDemandCapacity[e.getKey()] -= e.getValue();
+                    addedItems += inst.numItemsPerOrder.get(o);
+                    ordersToAdd.add(o);
+                }
+
+                if (1.0 * addedItems / (sol.wave_aisles + 1) > bestObj +
+                        1e-9) {
+                    sol.addAisle(id_a);
+                    for (int o : ordersToAdd)
+                        sol.addOrder(o, inst.numItemsPerOrder.get(o));
+                    if (!isSolutionFeasible(sol))
+                        throw new RuntimeException("Solution should be valid after remove aisle");
+                    double obj = computeObjectiveFunction(sol);
+                    if (obj <= bestObj)
+                        throw new RuntimeException("Solution should be valid after remove aisle");
+                    bestObj = obj;
+                    improved = true;
+                    couldImprove = true;
+                    sol.obj = obj;
+                    delta = compute_delta(sol);
+                }
+            }
             if (improved)
                 continue;
 
@@ -713,7 +850,7 @@ public class ChallengeSolver {
 
         // --- Finalize the underlying graph ---
         sol.updateGraph(inst.underlying_graph);
-
+        return couldImprove;
     }
 
     /*

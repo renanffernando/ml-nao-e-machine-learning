@@ -144,8 +144,10 @@ public class Instance {
         trivial_nodes = underlying_graph.isolates();
         for (String n : trivial_nodes)
             underlying_graph.removeNode(n);
-        for (int o : invalidOrders)
+        for (int o : invalidOrders) {
             u_oi.get(o).clear();
+            numItemsPerOrder.set(o, 0);
+        }
         return trivial_nodes.size();
     }
 
