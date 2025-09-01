@@ -15,7 +15,7 @@ import ilog.cplex.*;
 public class ChallengeSolver {
 
     private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
-            IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
+                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
 
     private static Model model;
@@ -69,7 +69,7 @@ public class ChallengeSolver {
     public static int[] minOrdersCover(Instance inst) throws IloException {
         int[] result = new int[inst.O];
         try (IloCplex setModel = new IloCplex()) {
-            setModel.setParam(IloCplex.Param.Threads, 8);
+            setModel.setParam(IloCplex.Param.Threads, 6);
             setModel.setOut(null);
             setModel.setWarning(null);
 
@@ -86,11 +86,11 @@ public class ChallengeSolver {
                 for (int i : inst.order_items.get(o)) {
                     IloLinearNumExpr lhs = setModel.linearNumExpr();
                     for (int a : inst.item_aisles.get(i)) {
-                        int cap = inst.u_ai.get(a).get(i);
+                        int cap = inst.u_ai.get(a).getOrDefault(i, 0);
                         if (cap > 0)
                             lhs.addTerm(cap, Avars[a]);
                     }
-                    int demand = inst.u_oi.get(o).get(i);
+                    int demand = inst.u_oi.get(o).getOrDefault(i, 0);
                     IloRange c = setModel.addGe(lhs, demand);
                     currentCons.add(c);
                 }
@@ -125,7 +125,7 @@ public class ChallengeSolver {
         try {
             IloCplex cplex = new IloCplex();
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output_lp.txt")));
-            cplex.setParam(IloCplex.Param.Threads, 8);
+            cplex.setParam(IloCplex.Param.Threads, 6);
 
             Map<String, IloNumVar> nameToVar = new HashMap<>();
 
@@ -210,7 +210,7 @@ public class ChallengeSolver {
         return -1;
     }
 
-    private void preprocess(Set<String> varInLP) throws IloException {
+    private void coveringHeuristic() throws IloException {
         System.out.println("Computing invalid orders and isolated vertices...");
         int[] minCovers = minOrdersCover(inst);
         // Mark invalid orders (min cover == 0):
@@ -220,6 +220,10 @@ public class ChallengeSolver {
                 invalid.add(o);
         int isolated = inst.clear_orders(invalid);
         System.out.printf("\t- %d orders and %d aisles were invalidated;\n", inst.invalid_order_nodes.size(), isolated);
+    }
+
+    private void preprocess(Set<String> varInLP) throws IloException {
+        coveringHeuristic();
 
         System.out.println("Running Linear Relaxation...");
         int removedByLP = getLPSolution(varInLP);
@@ -249,7 +253,7 @@ public class ChallengeSolver {
         System.out.println("\nBuilding Dinkelbach model...");
         IloCplex cplex = new IloCplex();
         cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt")));
-        cplex.setParam(IloCplex.Param.Threads, 8);
+        cplex.setParam(IloCplex.Param.Threads, 6);
         cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.HiddenFeas);
         Map<String, IloNumVar> nameToVar = new HashMap<>(); // variables with names and maps for quick access by name
 
@@ -355,6 +359,7 @@ public class ChallengeSolver {
 
             var finalIter = true;
             var superRemoved = new HashSet<String>();
+            var secondProcess = true;
             while (true) {
                 if (!bestSol.empty) {
                     var aux = bestSol.wave_items;
@@ -363,10 +368,21 @@ public class ChallengeSolver {
                         var adj = inst.u_ai.get(a);
                         if (adj.isEmpty()) continue;
                         var cap = adj.values().stream().mapToInt(Integer::intValue).sum();
-                        if (aux - cap >= inst.LB && cap < aux2)
+                        if (aux - cap >= inst.LB && cap < aux2) {
                             superRemoved.add(Helpers.aLabel(a));
+                            inst.u_ai.get(a).clear();
+                        }
                     }
                     setUB(superRemoved, 0.0); // reaally remove some variables
+
+                    if (secondProcess) {
+                        coveringHeuristic();
+                        for (var invalid : inst.invalid_order_nodes)
+                            model.cplex().remove(model.nameToVar().get(invalid));
+                        for (var trivial : inst.trivial_nodes)
+                            model.cplex().remove(model.nameToVar().get(trivial));
+                        secondProcess = false;
+                    }
                 }
                 System.out.println("\t- Variables were super removed = " + superRemoved.size() + " out of " + model.nameToVar().size() + " aisles: " + inst.A);
                 double GAP = 100 * (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
@@ -480,10 +496,10 @@ public class ChallengeSolver {
                             max = model.removed().size();
                         do {
                             var minDistance = model.removed().stream().mapToInt(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
                                     .orElse(Integer.MAX_VALUE);
                             Set<String> restore = model.removed().stream().filter(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
                                     .collect(Collectors.toCollection(HashSet::new));
                             restore = setUB(restore, 1.0, max - resetTotal);
                             model.removed().removeAll(restore);
