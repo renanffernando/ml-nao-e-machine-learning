@@ -76,7 +76,7 @@ python checker.py <input_file> <solution_file>
 
 1. Compile and run benchmarks:
     ```sh
-    python run_challenge.py src/main/java/org/sbpo2025/challenge src/main/resources/instances output
+    python run_challenge.py . datasets/a output/a
     ```
    
 2. Check solution viability:
