@@ -354,7 +354,21 @@ public class ChallengeSolver {
             boolean is_first_iteration = true;
 
             var finalIter = true;
+            var superRemoved = new HashSet<String>();
             while (true) {
+                if (!bestSol.empty) {
+                    var aux = bestSol.wave_items;
+                    var aux2 = bestSol.obj;
+                    for (int a = 0; a < inst.A; a++) {
+                        var adj = inst.u_ai.get(a);
+                        if (adj.isEmpty()) continue;
+                        var cap = adj.values().stream().mapToInt(Integer::intValue).sum();
+                        if (aux - cap >= inst.LB && cap < aux2)
+                            superRemoved.add(Helpers.aLabel(a));
+                    }
+                    setUB(superRemoved, 0.0); // reaally remove some variables
+                }
+                System.out.println("\t- Variables were super removed = " + superRemoved.size() + " out of " + model.nameToVar().size() + " aisles: " + inst.A);
                 double GAP = 100 * (OPT_UB - OPT_LB) / Math.max(OPT_LB, TOL);
                 System.out.printf("Current interval = [%.3f:%.3f]; gap = %.3f%%; λ = %.2f; ", OPT_LB, OPT_UB, GAP,
                         lambda);
@@ -498,7 +512,7 @@ public class ChallengeSolver {
                             break;
                         throw new IllegalStateException("Solution should be optimal!");
                     }
-                } else if (model.nameToVar().size() > 2000) {
+                } else if (model.nameToVar().size() > 1997) {
                     Set<String> solution_nodes = new HashSet<>();
                     solution_nodes.addAll(bestSol.aisle_nodes);
                     solution_nodes.addAll(bestSol.order_nodes);
