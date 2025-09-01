@@ -69,7 +69,7 @@ public class ChallengeSolver {
     public static int[] minOrdersCover(Instance inst) throws IloException {
         int[] result = new int[inst.O];
         try (IloCplex setModel = new IloCplex()) {
-            setModel.setParam(IloCplex.Param.Threads, 6);
+            setModel.setParam(IloCplex.Param.Threads, 8);
             setModel.setOut(null);
             setModel.setWarning(null);
 
@@ -125,7 +125,7 @@ public class ChallengeSolver {
         try {
             IloCplex cplex = new IloCplex();
             cplex.setOut(new PrintStream(new FileOutputStream("cplex_output_lp.txt")));
-            cplex.setParam(IloCplex.Param.Threads, 6);
+            cplex.setParam(IloCplex.Param.Threads, 8);
 
             Map<String, IloNumVar> nameToVar = new HashMap<>();
 
@@ -253,7 +253,7 @@ public class ChallengeSolver {
         System.out.println("\nBuilding Dinkelbach model...");
         IloCplex cplex = new IloCplex();
         cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt")));
-        cplex.setParam(IloCplex.Param.Threads, 6);
+        cplex.setParam(IloCplex.Param.Threads, 8);
         cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.HiddenFeas);
         Map<String, IloNumVar> nameToVar = new HashMap<>(); // variables with names and maps for quick access by name
 
