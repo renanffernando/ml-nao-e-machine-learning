@@ -136,7 +136,7 @@ public class Instance {
         return comps;
     }
 
-    int clear_orders(List<Integer> invalidOrders) {
+    void clear_orders(List<Integer> invalidOrders) {
         for (int o : invalidOrders)
             invalid_order_nodes.add(Helpers.oLabel(o));
         for (String n : invalid_order_nodes)
@@ -148,13 +148,12 @@ public class Instance {
             u_oi.get(o).clear();
             numItemsPerOrder.set(o, 0);
         }
-        return trivial_nodes.size();
     }
 
     double trivial_ub() {
         // Sort aisles by "number of items" (sum over items), desc. Compute
         // min(sum_items, UB)/(num_aisles)
-        List<Integer> numAisleItems = new ArrayList<>();
+        var numAisleItems = new ArrayList<Integer>();
         for (int a = 0; a < A; a++) {
             int tot = 0;
             for (int val : u_ai.get(a).values())

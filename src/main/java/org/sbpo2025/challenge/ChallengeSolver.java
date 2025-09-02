@@ -15,7 +15,7 @@ import ilog.cplex.*;
 public class ChallengeSolver {
 
     private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
-            IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
+                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
 
     private static Model model;
@@ -211,15 +211,16 @@ public class ChallengeSolver {
     }
 
     private void coveringHeuristic() throws IloException {
-        System.out.println("Computing invalid orders and isolated vertices...");
+        System.out.println("Computing invalid orders and isolated nodes...");
         int[] minCovers = minOrdersCover(inst);
         // Mark invalid orders (min cover == 0):
         var invalid = new ArrayList<Integer>();
         for (int o = 0; o < inst.O; o++)
-            if (minCovers[o] == 0)
+            if (minCovers[o] == 0 && !inst.invalid_order_nodes.contains(Helpers.oLabel(o)))
                 invalid.add(o);
-        int isolated = inst.clear_orders(invalid);
-        System.out.printf("\t- %d orders and %d aisles were invalidated;\n", inst.invalid_order_nodes.size(), isolated);
+        inst.clear_orders(invalid);
+        System.out.printf("\t- %d invalid orders and %d isolated nodes were invalidated;\n",
+                invalid.size(), inst.trivial_nodes.size());
     }
 
     private void preprocess(Set<String> varInLP) throws IloException {
@@ -231,7 +232,7 @@ public class ChallengeSolver {
     }
 
     private static Set<String> setUB(Set<String> varNames, double UB, int limit) throws IloException {
-        Set<String> removed = new HashSet<>();
+        var removed = new HashSet<String>();
         int count = 0;
         for (String var : varNames) {
             IloNumVar v = model.nameToVar().get(var);
@@ -255,7 +256,7 @@ public class ChallengeSolver {
         cplex.setOut(new PrintStream(new FileOutputStream("cplex_output.txt")));
         cplex.setParam(IloCplex.Param.Threads, 8);
         cplex.setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.HiddenFeas);
-        Map<String, IloNumVar> nameToVar = new HashMap<>(); // variables with names and maps for quick access by name
+        var nameToVar = new HashMap<String, IloNumVar>(); // variables with names and maps for quick access by name
 
         // Orders
         IloNumVar[] Ovars = cplex.boolVarArray(inst.O);
@@ -364,7 +365,6 @@ public class ChallengeSolver {
             double timeLimit = totalTime;
 
             model.cplex().setParam(IloCplex.DoubleParam.TimeLimit, Math.min(30.0, totalTime));
-            model.cplex().setParam(IloCplex.Param.MIP.Pool.Capacity, 2);
 
             System.out.println("\nStarting Dinkelbach search...");
             long dinkStart = System.currentTimeMillis();
@@ -372,7 +372,7 @@ public class ChallengeSolver {
             boolean is_first_iteration = true;
 
             var finalIter = true;
-            var superRemoved = new HashSet<String>();
+            var outdatedAisles = new HashSet<String>(); // aisles that are not part of any optimal solution
             var secondProcess = true;
             boolean failed_to_set_last_inc = false;
 
@@ -386,11 +386,12 @@ public class ChallengeSolver {
                             continue;
                         var cap = adj.values().stream().mapToInt(Integer::intValue).sum();
                         if (aux - cap >= inst.LB && cap < aux2) {
-                            superRemoved.add(Helpers.aLabel(a));
+                            outdatedAisles.add(Helpers.aLabel(a));
                             inst.u_ai.get(a).clear();
                         }
                     }
-                    setUB(superRemoved, 0.0); // reaally remove some variables
+                    for (var outdate : outdatedAisles)
+                        model.cplex().remove(model.nameToVar().get(outdate));
 
                     if (secondProcess) {
                         coveringHeuristic();
@@ -400,9 +401,9 @@ public class ChallengeSolver {
                             model.cplex().remove(model.nameToVar().get(trivial));
                         secondProcess = false;
                     }
+
+                    System.out.println("\t- " + outdatedAisles.size() + " aisles out of " + inst.A + " are outdate;");
                 }
-                System.out.println("\t- Variables were super removed = " + superRemoved.size() + " out of "
-                        + model.nameToVar().size() + " aisles: " + inst.A);
 
                 if (failed_to_set_last_inc)
                     set_incumbent_as_start(bestSol);
@@ -463,7 +464,7 @@ public class ChallengeSolver {
                 boolean improved = currentObj > bestSol.obj + 1.0 / inst.UB - TOL;
                 if (improved) {
                     model.cplex().setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, 1.0 / inst.UB);
-                    model.cplex().setParam(IloCplex.Param.MIP.Limits.Solutions, 5);
+                    model.cplex().setParam(IloCplex.Param.MIP.Limits.Solutions, 3);
                     bestSol = new CPLEXSolution(model.cplex(), model.nameToVar(), waveItemsVal, remainingGraph);
                     if (!is_first_iteration
                             && Math.abs(bestSol.wave_items - bestSol.wave_aisles * lambda - dinkObj) >= TOL) {
@@ -484,7 +485,7 @@ public class ChallengeSolver {
                     model.removed().clear();
                 }
 
-                // Remove objective to re-set the next iteration:
+                // Remove the objective to re-set the next iteration:
                 model.cplex().delete(model.cplex().getObjective());
 
                 if (timeLimit <= timeTolerance)
@@ -509,10 +510,10 @@ public class ChallengeSolver {
                             max = model.removed().size();
                         do {
                             var minDistance = model.removed().stream().mapToInt(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
                                     .orElse(Integer.MAX_VALUE);
                             Set<String> restore = model.removed().stream().filter(
-                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
+                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
                                     .collect(Collectors.toCollection(HashSet::new));
                             restore = setUB(restore, 1.0, max - resetTotal);
                             model.removed().removeAll(restore);
@@ -532,7 +533,6 @@ public class ChallengeSolver {
                         if (finalIter) {
                             finalIter = false;
                             System.out.println("Running final iteration (resetting all parameters)...");
-                            model.cplex().setParam(IloCplex.Param.MIP.Pool.Capacity, 2100000000);
                             model.cplex().setParam(IloCplex.DoubleParam.MIP.Limits.LowerObjStop, -1E+75);
                             model.cplex().setParam(IloCplex.Param.MIP.Limits.Solutions, 9223372036800000000L);
                             model.cplex().setParam(IloCplex.Param.Emphasis.MIP, IloCplex.MIPEmphasis.Optimality);
@@ -560,7 +560,7 @@ public class ChallengeSolver {
                                                 + " was removed but it is on the remaining graph");
                             to_remove.add(entry.getKey());
                         }
-                        if (model.removed().size() >= 0.75 * model.nameToVar().size())
+                        if (model.removed().size() >= 0.7 * model.nameToVar().size())
                             break;
                     }
                     setUB(to_remove, 0.0);
@@ -642,20 +642,27 @@ public class ChallengeSolver {
                 return false;
 
             // --- Try removing redundant aisles ---
-            for (Integer a : new HashSet<>(sol.get_aisles())) {
-                if (canRemoveAisle(delta, a)) {
-                    sol.removeAisle(a);
-                    if (!isSolutionFeasible(sol))
-                        throw new RuntimeException("Solution should be valid after aisle remove");
-                    double obj = computeObjectiveFunction(sol);
-                    if (obj <= bestObj)
-                        throw new RuntimeException("Solution should be better after aisle remove");
-                    bestObj = obj;
-                    improved = true;
-                    couldImprove = true;
-                    sol.obj = obj;
-                    delta = compute_delta(sol);
+            int aux = 0;
+            try {
+                for (var a : new HashSet<>(sol.get_aisles())) {
+                    if (canRemoveAisle(delta, a)) {
+                        sol.removeAisle(a);
+                        aux = a;
+                        if (!isSolutionFeasible(sol))
+                            throw new RuntimeException("Solution should be valid after aisle remove");
+                        double obj = computeObjectiveFunction(sol);
+                        if (obj <= bestObj)
+                            throw new RuntimeException("Solution should be better after aisle remove");
+                        bestObj = obj;
+                        improved = true;
+                        couldImprove = true;
+                        sol.obj = obj;
+                        delta = compute_delta(sol);
+                    }
                 }
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+                sol.addAisle(aux);
             }
 
             // --- Try adding profitable orders ---
@@ -747,8 +754,8 @@ public class ChallengeSolver {
             for (int o = 0; o < inst.O; o++)
                 selectedOrders.add(o);
             selectedOrders = selectedOrders.stream().sorted((a, b) -> Integer.compare(
-                    inst.numItemsPerOrder.get(b),
-                    inst.numItemsPerOrder.get(a)))
+                            inst.numItemsPerOrder.get(b),
+                            inst.numItemsPerOrder.get(a)))
                     .toList();
 
             Set<Integer> my_aisle = sol.get_aisles();
@@ -803,47 +810,6 @@ public class ChallengeSolver {
                     delta = compute_delta(sol);
                 }
             }
-            if (improved)
-                continue;
-
-            // --- Try swap: remove weak order, add stronger ---
-            /*
-             * var my_orders = sol.get_orders();
-             * for (Integer oRem : my_orders) {
-             * if (!sol.get_orders().contains(oRem))
-             * continue;
-             * int remUnits = inst.numItemsPerOrder.get(oRem);
-             *
-             * for (Integer oAdd : inst.orderNeighbors.get(oRem)) {
-             * if (sol.get_orders().contains(oAdd))
-             * continue;
-             *
-             * int addUnits = inst.numItemsPerOrder.get(oRem);
-             * if (addUnits <= remUnits || sol.wave_items + (addUnits - remUnits) > inst.UB)
-             * continue;
-             *
-             * if (checkIfHasDemandForSwap(delta, oRem, oAdd)) {
-             * sol.removeOrder(remUnits, remUnits);
-             * sol.addOrder(oAdd, addUnits);
-             *
-             * if (!isSolutionFeasible(sol))
-             * throw new RuntimeException("Solution should be valid after swap orders");
-             *
-             * double obj = computeObjectiveFunction(sol);
-             * if (obj <= bestObj)
-             * throw new RuntimeException("Solution should be better after swap orders");
-             * bestObj = obj;
-             * sol.obj = obj;
-             * improved = true;
-             * couldImprove = true;
-             * System.out.printf("\t- LS: swapped order %d -> %d, obj=%.3f\n", oRem, oAdd,
-             * obj);
-             * delta = compute_delta(sol);
-             * break;
-             * }
-             * }
-             * }
-             */
         }
         if (couldImprove)
             System.out.printf("\t- LS found a new best solution with obj = %.3f;\n", bestObj);
