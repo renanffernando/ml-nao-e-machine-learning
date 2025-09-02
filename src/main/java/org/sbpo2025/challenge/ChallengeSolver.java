@@ -15,7 +15,7 @@ import ilog.cplex.*;
 public class ChallengeSolver {
 
     private record Model(IloCplex cplex, IloNumVar[] Ovars, IloNumVar[] Avars, Map<String, IloNumVar> nameToVar,
-                         IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
+            IloLinearNumExpr waveItemsExpr, IloLinearNumExpr waveAislesExpr, Set<String> removed) {
     }
 
     private static Model model;
@@ -510,10 +510,10 @@ public class ChallengeSolver {
                             max = model.removed().size();
                         do {
                             var minDistance = model.removed().stream().mapToInt(
-                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE)).min()
                                     .orElse(Integer.MAX_VALUE);
                             Set<String> restore = model.removed().stream().filter(
-                                            var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
+                                    var -> mapDistance.getOrDefault(var, Integer.MAX_VALUE) <= minDistance)
                                     .collect(Collectors.toCollection(HashSet::new));
                             restore = setUB(restore, 1.0, max - resetTotal);
                             model.removed().removeAll(restore);
@@ -754,8 +754,8 @@ public class ChallengeSolver {
             for (int o = 0; o < inst.O; o++)
                 selectedOrders.add(o);
             selectedOrders = selectedOrders.stream().sorted((a, b) -> Integer.compare(
-                            inst.numItemsPerOrder.get(b),
-                            inst.numItemsPerOrder.get(a)))
+                    inst.numItemsPerOrder.get(b),
+                    inst.numItemsPerOrder.get(a)))
                     .toList();
 
             Set<Integer> my_aisle = sol.get_aisles();
