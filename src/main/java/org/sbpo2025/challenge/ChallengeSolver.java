@@ -542,7 +542,7 @@ public class ChallengeSolver {
                             break;
                         throw new IllegalStateException("Solution should be optimal!");
                     }
-                } else if (model.nameToVar().size() > 1997) {
+                } else if (model.nameToVar().size() > 2000) {
                     Set<String> solution_nodes = new HashSet<>();
                     solution_nodes.addAll(bestSol.aisle_nodes);
                     solution_nodes.addAll(bestSol.order_nodes);
